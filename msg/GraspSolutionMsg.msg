@@ -1,0 +1,6 @@
+float32[] joint_angles
+float32[] base_pose
+float32[] cloud_centroid
+float32[] cloud_min_pt
+float32[] cloud_max_pt
+GraspTrajectory trajectory

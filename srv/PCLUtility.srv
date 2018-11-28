@@ -1,0 +1,13 @@
+string function_call_id
+sensor_msgs/PointCloud2 cloud_input
+float32[] view_point
+float32[] crop_min_pt
+float32[] crop_max_pt
+---
+sensor_msgs/PointCloud2 cloud_output
+float32[] eigen1
+float32[] eigen2
+float32[] eigen3
+float32[] eigen_values
+string info
+bool success

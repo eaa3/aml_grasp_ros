@@ -1,0 +1,91 @@
+# siren-06
+
+
+void golem::Cloud::normalPCA(golem::Context& context, const NormalDesc& desc, const PointSeq& inp, PointSeq& out) {
+	assertValid(inp, isNanXYZ<Point>);
+	const std::string inpStr = toString(inp);
+	pcl::NormalEstimation<Point, Point> ne;
+	ne.setSearchMethod(pcl::search::KdTree<Point>::Ptr(new pcl::search::KdTree<Point>()));
+	ne.setRadiusSearch(desc.radiusSearch);
+	ne.setInputCloud(getPtr(inp));
+	const Vec3 vp = getSensorOrigin(inp);
+	ne.setViewPoint((float)vp.x, (float)vp.y, (float)vp.z);
+	out = inp;
+	ne.compute(out); // updates normals only!
+	context.debug("Cloud::normalPCA(): View point: (%f, %f, %f), (%s) --> (%s)\n", vp.x, vp.y, vp.z, inpStr.c_str(), toString(out).c_str());
+}
+
+void golem::Cloud::normalII(golem::Context& context, const NormalDesc& desc, const PointSeq& inp, PointSeq& out) {
+	assertValid(inp, isNanXYZ<Point>);
+	const std::string inpStr = toString(inp);
+	//pcl::MovingLeastSquares<Point, Point> mls;
+	pcl::IntegralImageNormalEstimation<pcl::PointXYZ, pcl::PointNormal> nii;
+	nii.setNormalEstimationMethod(nii.AVERAGE_3D_GRADIENT);
+	nii.setMaxDepthChangeFactor((float)desc.maxDepthChangeFactor);
+	nii.setNormalSmoothingSize((float)desc.normalSmoothingSize);
+	//nii.setSearchMethod(pcl::search::KdTree<Point>::Ptr(new pcl::search::KdTree<Point>()));
+	nii.setSearchMethod(pcl::search::KdTree<pcl::PointXYZ>::Ptr(new pcl::search::KdTree<pcl::PointXYZ>()));
+	//nii.setInputCloud(getPtr(inp));
+	pcl::PointCloud<pcl::PointXYZ> inppoints;
+	pcl::copyPointCloud(inp, inppoints);
+	nii.setInputCloud(getPtr(inppoints));
+	const Vec3 vp = getSensorOrigin(inp);
+	nii.setViewPoint((float)vp.x, (float)vp.y, (float)vp.z);
+	out = inp;
+	//mls.process(out); // updates normals only!
+	pcl::PointCloud<pcl::PointNormal> outpoints;
+	nii.compute(outpoints);
+	pcl::copyPointCloud(outpoints, out);
+	context.debug("Cloud::normalII(): View point: (%f, %f, %f), (%s) --> (%s)\n", vp.x, vp.y, vp.z, inpStr.c_str(), toString(out).c_str());
+}
+
+void golem::Cloud::normalMLS(golem::Context& context, const NormalDesc& desc, const PointSeq& inp, PointSeq& out) {
+	assertValid(inp, isNanXYZ<Point>);
+	const std::string inpStr = toString(inp);
+	//pcl::MovingLeastSquares<Point, Point> mls;
+	pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointNormal> mls;
+	mls.setComputeNormals(true);
+	mls.setPolynomialFit(desc.polynomialFit);
+	//mls.setSearchMethod(pcl::search::KdTree<Point>::Ptr(new pcl::search::KdTree<Point>()));
+	mls.setSearchMethod(pcl::search::KdTree<pcl::PointXYZ>::Ptr(new pcl::search::KdTree<pcl::PointXYZ>()));
+	mls.setSearchRadius(desc.radiusSearch);
+	const golem::_Vec3<float> vp(getSensorOrigin(inp));
+	// transform to a viewpoint, find non-Nan size
+	pcl::PointCloud<pcl::PointXYZ> inppoints;
+	pcl::copyPointCloud(inp, inppoints);
+	size_t inpSize = 0;
+	for (pcl::PointCloud<pcl::PointXYZ>::iterator i = inppoints.begin(); i != inppoints.end(); ++i)
+		if (!isNanXYZ(*i)) {
+			++inpSize;
+			i->x -= vp.x; i->y -= vp.y; i->z -= vp.z;
+		}
+	//inppoints.reserve(inp.size());
+	//for (PointSeq::const_iterator i = inp.begin(); i != inp.end(); ++i)
+	//	if (!isNanXYZ(*i))
+	//		inppoints.push_back(pcl::PointXYZ(i->x - vp.x, i->y - vp.y, i->z - vp.z));
+	//const size_t inpSize = inppoints.size();
+	// process
+	mls.setInputCloud(getPtr(inppoints));
+	//mls.process(out); // updates normals only!
+	pcl::PointCloud<pcl::PointNormal> outpoints;
+	mls.process(outpoints);
+	// transform from a viewpoint
+	for (pcl::PointCloud<pcl::PointNormal>::iterator i = outpoints.begin(); i != outpoints.end(); ++i) {
+		if (golem::Math::isPositive(i->x*i->normal_x + i->y*i->normal_y + i->z*i->normal_z)) {
+			i->normal_x = -i->normal_x; i->normal_y = -i->normal_y; i->normal_z = -i->normal_z; // HACK: MLS bug - flip normals
+		}
+		i->x += vp.x; i->y += vp.y; i->z += vp.z;
+	}
+	// make sure there is 1:1 match between non Nan input cloud and output cloud
+	if (outpoints.size() != inpSize)
+		throw Message(Message::LEVEL_ERROR, "Cloud::normalMLS(): cloud non-Nan input size %u different than non-Nan output size %u", inpSize, outpoints.size());
+	// raw copy including Nan points
+	if (&out != &inp) out = inp;
+	// re-map non-Nan points and transform from a viewpoint
+	size_t j = 0;
+	for (PointSeq::iterator i = out.begin(); i != out.end() && j < outpoints.size(); ++i)
+		if (!isNanXYZ(*i)) {
+			pcl::copyPoint(outpoints[j++], (pcl::PointNormal&)*i);
+		}
+	context.debug("Cloud::normalMLS(): View point: (%f, %f, %f), (%s) --> (%s)\n", vp.x, vp.y, vp.z, inpStr.c_str(), toString(out).c_str());
+}

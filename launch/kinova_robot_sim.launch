@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<launch>
+
+  <include file="$(find j2n6s300_moveit_config)/launch/j2n6s300_gazebo_demo.launch"/>
+  <include file="$(find kinova_tabletop_gazebo)/launch/timed_tabletop.launch"/>
+  
+</launch>
+
+
+

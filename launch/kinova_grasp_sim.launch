@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<launch>
+
+  <!-- <include file="$(find kinova_grasp)/launch/kinova_robot_sim.launch"/>
+   -->
+  <node name="pcl_cloud_processing_service" pkg="temporal_grasp_ros" type="pcl_service" output="screen"/>
+  <node name="kinova_grasp_planner_node" pkg="temporal_grasp_ros" type="kinova_grasp_node.py" output="screen"/>
+  <node name="grasp_execution_gui" pkg="temporal_grasp_ros" type="execute_grasp_gui.py" output="screen"/>
+  
+</launch>
+
+
+

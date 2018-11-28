@@ -1,0 +1,1 @@
+GraspWaypoint[] waypoints
