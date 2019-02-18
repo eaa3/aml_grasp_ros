@@ -44,7 +44,7 @@ def hard_kinematic_constraint(manipulator, solution, **kwargs):
     # for pose in solution.base_trajectory:
     #     grasp_ok = grasp_ok and kin.trac_ik_inverse_kinematics(pose.p, pose.q, None)
     
-    solution.skip = not grasp_ok #not kin.trac_ik_inverse_kinematics(solution.base_pose[0], solution.base_pose[1], None)
+    solution.skip = not kin.trac_ik_inverse_kinematics(solution.base_pose[0], solution.base_pose[1], None)
     # solution.skip = solution.skip or not np.all([e for e,_ in solution.contact_mask.items()])
     #print "Kinematics constraint: ",solution.skip
 

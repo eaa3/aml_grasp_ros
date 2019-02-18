@@ -11,7 +11,7 @@ from aml_math import *
 from pcl_service_client import PCLService
 from temporal_grasp_ros.srv import *
 from temporal_grasp_ros.msg import *
-from aml_grasp.grasp_config_test import kinova_grasp_config
+from aml_grasp.grasp_config_test import grasp_config
 from grasp_constraints import *
 import functools as ft
 from aml_io import *
@@ -58,7 +58,7 @@ class GraspAppService(GraspApp):
 
 
     def __init__(self):
-        super(GraspAppService, self).__init__(kinova_grasp_config)
+        super(GraspAppService, self).__init__(grasp_config)
         # GraspApp.__init__(self, kinova_grasp_config)
 
         self.robo_vis.add_key_callback(ord('A'), self.acquire_cloud)

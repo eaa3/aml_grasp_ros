@@ -403,9 +403,13 @@ class PCLService(object):
 
     def get_processed_cloud(self, **kwargs):
 
-        view_point = kwargs.get('view_point', [1.35, -0.9, 0.32])
-        crop_min_pt = kwargs.get('crop_min_pt',[0.2, -0.40, -0.01])
-        crop_max_pt = kwargs.get('crop_max_pt',[0.6, 0.0, 0.2])
+        # view_point = kwargs.get('view_point', [1.35, -0.9, 0.32])
+        # crop_min_pt = kwargs.get('crop_min_pt',[0.2, -0.40, -0.01])
+        # crop_max_pt = kwargs.get('crop_max_pt',[0.6, 0.0, 0.2])
+        
+        view_point = kwargs.get('view_point', [0.469, 1.05, 0.19])
+        crop_min_pt = kwargs.get('crop_min_pt',[0.0, 0.0, -0.30])#[0.2, -0.40, -0.01])
+        crop_max_pt = kwargs.get('crop_max_pt',[0.848, 0.886, 0.05])
 
         result = self.compute_features_current(view_point, crop_min_pt, crop_max_pt)
 
@@ -425,8 +429,9 @@ class PCLService(object):
 if __name__ == '__main__':
     rospy.init_node('writeCloudsToFile', anonymous=True)
 
+    cloud_topic = rospy.get_param("cloud_topic", "/left_camera/depth_registered/points")
 
-    service = PCLService(point_cloud_topic='/camera/depth_registered/points')#(point_cloud_topic='/point_cloud_in')
+    service = PCLService(point_cloud_topic=cloud_topic)#(point_cloud_topic='/point_cloud_in')
 
     from kbhit import KBHit
 
@@ -445,7 +450,7 @@ if __name__ == '__main__':
             if c == 'f':
                 print "Calling computing features"
                 result = service.compute_features_current()
-                if result is not None and point_cloud is None:
+                if result is not None and point_cloud is not None:
                     point_cloud, cloud_frame = service.msg2point_cloud(result)
                     robo_vis.add_entity(point_cloud)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from kinova_grasp.srv import *
+from temporal_grasp_ros.srv import *
 import rospy
 import numpy as np
 

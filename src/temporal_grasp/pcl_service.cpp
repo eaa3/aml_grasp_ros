@@ -126,7 +126,7 @@ void initiliseServer()
 
     atexit(clear);
 
-    ROS_INFO("Kinova AML Grasp PCL Service Started!");
+    ROS_INFO("AML Grasp PCL Service Started!");
     ros::spin();
 }
 

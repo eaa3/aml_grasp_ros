@@ -36,14 +36,14 @@ class Window(QtGui.QWidget):
 
 
     def handleExecuteGrasp(self):
-        command = 'rosrun kinova_grasp moveit_grasp_commander.py'
+        command = 'rosrun temporal_grasp_ros moveit_grasp_commander.py'
         process = subprocess.Popen(command.split(), stdout=subprocess.PIPE)
         output, error = process.communicate()
 
         print output
     
     def handleRestartWorld(self):
-        command = 'rosrun kinova_tabletop_gazebo model_spawner.py'
+        command = 'rosrun temporal_grasp_ros model_spawner.py'
         process = subprocess.Popen(command.split(), stdout=subprocess.PIPE)
         output, error = process.communicate()
 

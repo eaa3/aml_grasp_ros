@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<launch>
+
+	<arg name="sim" default="true" doc="Whether or not to run the simulated or real robot" />
+
+  <group if="$(arg sim)">
+    <include file="$(find boris_description)/launch/run_sim.launch"/>
+  </group>
+  <group unless="$(arg sim)">
+    <include file="$(find boris_description)/launch/run_real.launch"/>
+  </group>
+
+  
+  <include file="$(find temporal_grasp_ros)/launch/temporal_grasp_robot.launch"/>
+  
+</launch>
+
+
+

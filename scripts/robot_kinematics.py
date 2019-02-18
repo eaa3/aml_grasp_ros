@@ -25,7 +25,7 @@ class robot_kinematics(object):
         self._kdl_tree = kdl_tree_from_urdf_model(self._urdf)
 
         self._base_link = self._urdf.get_root()
-        self._tip_link =  'left_arm_7_link'
+        self._tip_link =  'left_hand_palm_link'
         self._arm_chain = self._kdl_tree.getChain(self._base_link, self._tip_link)
 
         self._joint_names = self._urdf.get_chain(self._base_link, self._tip_link, links=False, fixed=False)
@@ -54,7 +54,7 @@ class robot_kinematics(object):
                 self.joint_limits_upper.append(None)
             self.joint_types.append(jnt.type)
 
-        self._default_seed = [4.8046852, 2.92482, 1.002, 4.2031852, 1.4458, 1.3233] # home_pos
+        self._default_seed = [-0.3723750412464142, 0.02747996523976326, -0.7221865057945251, -1.69843590259552, 0.11076358705759048, 0.5450965166091919, 0.45358774065971375] # home_pos
 
         #lower_lim = np.where(np.isfinite(self.joint_limits_lower), self.joint_limits_lower, 0.)
         #upper_lim = np.where(np.isfinite(self.joint_limits_upper), self.joint_limits_upper, 0.)
