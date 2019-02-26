@@ -102,6 +102,7 @@ class GraspAppService(GraspApp):
 
         if self.grasp_service is None:
             self.grasp_service = rospy.Service('grasp_service/get_solution', GraspSolution, self.get_grasp_solution)
+            self.cloud_centroid_srv = rospy.Service('grasp_service/get_cloud_centroid', GraspSolution, self.get_cloud_centroid)
 
 
             self.learn_contact_model_srv = rospy.Service('grasp_service/learn_contact_model', GraspServiceCall, self.learn_contact_model_call)
@@ -124,7 +125,8 @@ class GraspAppService(GraspApp):
                                  self.next_solution_srv,
                                  self.prev_solution_srv,
                                  self.clear_solutions_srv,
-                                 self.start_cloud_timer_srv]
+                                 self.start_cloud_timer_srv,
+                                 self.cloud_centroid_srv]
 
 
 
@@ -197,7 +199,7 @@ class GraspAppService(GraspApp):
 
         resp = GraspServiceCallResponse()
 
-        self.acquire_cloud(None)
+        self.acquire_cloud(self.robo_vis._vis)
 
         resp.success = True
 
@@ -340,6 +342,16 @@ class GraspAppService(GraspApp):
                               "world")
         return resp
 
+    def get_cloud_centroid(self, req):
+        resp = GraspSolutionResponse()
+
+        resp.cloud_min_pt = np.amin(self.point_cloud.points(), axis=0)
+        resp.cloud_max_pt = np.amax(self.point_cloud.points(), axis=0)
+        resp.cloud_centroid = self.point_cloud.compute_centroid()
+
+
+        return resp
+
 
 
 
@@ -400,7 +412,7 @@ class GraspAppService(GraspApp):
 
             print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
-            # self.mesh_frame2.transformation = self.cloud_frame.to_matrix()
+            self.mesh_frame2.transformation = self.cloud_frame.to_matrix()
             # vis.add_geometry(self.point_cloud._cloud)
             # self.pcl_service.pause_sub()
 

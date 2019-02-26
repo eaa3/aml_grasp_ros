@@ -12,9 +12,11 @@ class GraspServiceClient(object):
 
         print "Waiting for PCL service"
         rospy.wait_for_service('grasp_service/get_solution')
+        rospy.wait_for_service('grasp_service/get_cloud_centroid')
         print "Service found!"
         try:
             self.get_grasp_solution_srv = rospy.ServiceProxy('grasp_service/get_solution', GraspSolution)
+            self.get_cloud_centroid_srv = rospy.ServiceProxy('grasp_service/get_cloud_centroid', GraspSolution)
         except rospy.ServiceException, e:
             print "Service proxy setup failed: %s"%e
 
@@ -47,6 +49,30 @@ class GraspServiceClient(object):
             print "Service call to compute_features_srv failed: %s"%e
 
         return grasp_solution
+
+    def get_cloud_centroid(self):
+
+        cloud_info = None
+
+        try:
+
+            # request = PCLUtilityRequest()
+            # request.function_call_id = "compute_features"
+            # request.cloud_input = cloud2_msg
+            response = self.get_cloud_centroid_srv(GraspSolutionRequest())
+            # gsp = GraspSolutionResponse()
+
+            
+            cloud_info = {'cloud_min_pt': response.cloud_min_pt,
+                              'cloud_max_pt': response.cloud_max_pt,
+                              'cloud_centroid': response.cloud_centroid
+                              }
+
+        except rospy.ServiceException, e:
+
+            print "Service call to cloud_centroid_srv failed: %s"%e
+
+        return cloud_info
 
 
 if __name__ == '__main__':

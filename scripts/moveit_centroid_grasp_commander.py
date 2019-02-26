@@ -11,8 +11,10 @@ from sensor_msgs.msg import JointState
 import tf.transformations as tt
 import utils as qr
 import math
-from aml_math import Transform3, quaternion_mult
+from aml_math import Transform3, quaternion_mult, Quaternion
 import numpy as np
+
+import atexit
 
 import tf
 
@@ -115,117 +117,41 @@ def transform2PoseMsg(transform3):
     return target
 
 def main():
+
+    # Grasp service
     grasp_service_client = GraspServiceClient()
 
+    # Moveit and node setup
     moveit_commander.roscpp_initialize(sys.argv)
     rospy.init_node("moveit_commander")
+    atexit.register(moveit_commander.roscpp_shutdown)
 
     robot = moveit_commander.RobotCommander()
     scene = moveit_commander.PlanningSceneInterface()
-    # rospy.sleep(2)
 
-    # scene.remove_world_object("table")
-    # scene.remove_world_object("guard")
-    # rospy.sleep(2)
+    # TF setup
 
-    # p = geometry_msgs.msg.PoseStamped()
-    # p.header.frame_id = robot.get_planning_frame()
-    # p.pose.position.x = 0.5
-    # p.pose.position.y = -0.4
-    # p.pose.position.z = -0.02
-    # p.pose.orientation.w = 1.0
-    # scene.add_box("table", p, (1.2, 1.0, 0.04))
-
-    p = geometry_msgs.msg.PoseStamped()
-    p.header.frame_id = robot.get_planning_frame()
-    p.pose.position.x = 0.5
-    p.pose.position.y = 0.547
-    p.pose.position.z = 0.0
-    p.pose.orientation.w = 1.0
-    scene.add_box("guard", p, (0.1, 0.1, 0.25))
-
-    ########################################################
-    arm = moveit_commander.MoveGroupCommander("left_hand_arm")
-
-    arm.set_max_velocity_scaling_factor(0.25)
-    arm.set_max_acceleration_scaling_factor(0.25)
-
-    arm_initial_pose = arm.get_current_pose().pose
-    arm_initial_joints = arm.get_current_joint_values()
-
-    gripper = moveit_commander.MoveGroupCommander("left_hand")
-    gripper_joint_values = gripper.get_current_joint_values()
-    print "Left hand: ", gripper_joint_values
-    # ### Open
-    gripper_joint_values[0] = 0.0
-    gripper.set_joint_value_target(gripper_joint_values)
-    gripper.go(wait=True)
-    
-    ### tf2
+    ## tf2
     tf_buffer = tf2_ros.Buffer()
     listener = tf2_ros.TransformListener(tf_buffer)
-
-    ### get target tf
-
-    solution = grasp_service_client.get_grasp_solution()
-    print "Got solution: ", solution
-    wrist_transform = msg2Transform3(solution2pose(solution))
-
-    # offset_transform = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_arm_7_link', child_frame_id='left_hand_kuka_coupler_bottom'))
-    # ee_transform = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='world', child_frame_id='left_hand_kuka_coupler_bottom'))
-    tmp = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_arm_7_link', child_frame_id='left_hand_palm_link'))
-    # tmp2 = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_hand_kuka_coupler_bottom', child_frame_id='left_hand_palm_link'))
-    # offset_transform.inverted()
-    #tmp.inverted()
-    # offset_transform.multiplied(ee_transform)
-    m1 = wrist_transform.to_matrix()
-    m2 = tmp.to_matrix()
-    ee_transform = Transform3.from_matrix(np.dot(m1,m2))
-
-    rotation = tt.quaternion_about_axis(135.0*np.pi/180.0,(0,0,1))
-    ee_transform.q = quaternion_mult(ee_transform.q, rotation)
-    # tt.
-    
     br = tf.TransformBroadcaster()
 
-    print tmp.q.to_euler()
-    target_pose = transform2PoseMsg(ee_transform)
-    arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
-    arm.go(wait=True)
-    rospy.sleep(2)
-    arm.clear_pose_targets()
-    arm.stop()
+    # Getting point cloud
+    cloud_info = grasp_service_client.get_cloud_centroid()
+    centroid = np.array(cloud_info['cloud_centroid'])
+    print "Got solution: ", cloud_info
 
-    # target_pose = transform2PoseMsg(ee_transform)
-
-    ### Joint space
-    # arm.set_pose_target(target_pose,end_effector_link="left_arm_7_link")
-    # arm.go(wait=True)
-    # rospy.sleep(2)
-
-    ### Cartesian space
-    # waypoints = []
-    # waypoints.append(target_pose)
-    # move_cartesian_path(waypoints, arm)
-    # rospy.sleep(2)
-
-    # ### Close
-    # gripper_joint_values[0] = 0.7
-    # gripper.set_joint_value_target(gripper_joint_values)
-    # gripper.go(wait=True)
-    # rospy.sleep(2)
-
-    ### Cartesian space
-    # target_pose = get_ee_transfrom(tf_buffer, 'ee_target')
-    # waypoints = []
-    # waypoints.append(target_pose)
-    # move_cartesian_path(waypoints, arm)
-    # rospy.sleep(2)
+    print centroid
+    target_pos = centroid + np.array([-0.03,0,0.07])
+    target_q = Quaternion()
+    target_q.set_from_euler([0,np.pi/2,0])
+    target_transform = Transform3(p=target_pos,q=target_q)
 
     rate = rospy.Rate(30)
+
     while not rospy.is_shutdown():
-        br.sendTransform(ee_transform.p,
-                        ee_transform.q,
+        br.sendTransform(target_transform.p,
+                        target_transform.q,
                         rospy.Time.now(),
                         "grasp_goal",
                         "world")
@@ -233,7 +159,27 @@ def main():
         rate.sleep()
 
 
-    moveit_commander.roscpp_shutdown()
+    ########################################################
+    arm = moveit_commander.MoveGroupCommander("left_hand_arm")
+
+    arm.set_max_velocity_scaling_factor(0.3)
+    arm.set_max_acceleration_scaling_factor(0.3)
+
+    arm_initial_pose = arm.get_current_pose().pose
+    arm_initial_joints = arm.get_current_joint_values()
+    
+    
+    
+    target_pose = transform2PoseMsg(target_transform)
+
+    arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
+    arm.go(wait=True)
+    rospy.sleep(2)
+    arm.clear_pose_targets()
+    arm.stop()
+
+
+    
 
 
 
