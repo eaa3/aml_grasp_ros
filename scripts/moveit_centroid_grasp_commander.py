@@ -142,22 +142,26 @@ def main():
     print "Got solution: ", cloud_info
 
     print centroid
-    target_pos = centroid + np.array([-0.03,0,0.07])
+    target_pos = centroid + np.array([-0.095,-0.01,0.07])
     target_q = Quaternion()
     target_q.set_from_euler([0,np.pi/2,0])
     target_transform = Transform3(p=target_pos,q=target_q)
 
     rate = rospy.Rate(30)
 
-    while not rospy.is_shutdown():
-        br.sendTransform(target_transform.p,
+    # while not rospy.is_shutdown():
+    #     br.sendTransform(target_transform.p,
+    #                     target_transform.q,
+    #                     rospy.Time.now(),
+    #                     "grasp_goal",
+    #                     "world")
+
+    #     rate.sleep()
+    br.sendTransform(target_transform.p,
                         target_transform.q,
                         rospy.Time.now(),
                         "grasp_goal",
                         "world")
-
-        rate.sleep()
-
 
     ########################################################
     arm = moveit_commander.MoveGroupCommander("left_hand_arm")
@@ -169,7 +173,49 @@ def main():
     arm_initial_joints = arm.get_current_joint_values()
     
     
-    
+    # Pre-grasp
+    target_pose = transform2PoseMsg(target_transform)
+
+    arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
+    arm.go(wait=True)
+    rospy.sleep(2)
+    arm.clear_pose_targets()
+    arm.stop()
+
+    # Grasp
+    target_pos = centroid + np.array([-0.095,-0.01,0.03])
+    target_q = Quaternion()
+    target_q.set_from_euler([0,np.pi/2,0])
+    target_transform = Transform3(p=target_pos,q=target_q)
+    target_pose = transform2PoseMsg(target_transform)
+
+    arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
+    arm.go(wait=True)
+    rospy.sleep(2)
+    arm.clear_pose_targets()
+    arm.stop()
+
+
+
+    gripper = moveit_commander.MoveGroupCommander("left_hand")
+    gripper_joint_values = gripper.get_current_joint_values()
+    print "Left hand: ", gripper_joint_values
+    # ### Open
+    gripper_joint_values[0] = 0.0
+    gripper.set_joint_value_target(gripper_joint_values)
+    gripper.go(wait=True)
+
+    # ### Close
+    gripper_joint_values[0] = 0.75
+    gripper.set_joint_value_target(gripper_joint_values)
+    gripper.go(wait=True)
+
+
+    # Move up
+    target_pos = centroid + np.array([-0.095,-0.01,0.12])
+    target_q = Quaternion()
+    target_q.set_from_euler([0,np.pi/2,0])
+    target_transform = Transform3(p=target_pos,q=target_q)
     target_pose = transform2PoseMsg(target_transform)
 
     arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
