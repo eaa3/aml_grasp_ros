@@ -76,28 +76,61 @@ def move_cartesian_path(waypoints, arm):
         (plan, fraction) = arm.compute_cartesian_path(waypoints,   # waypoints to follow
                                                       0.01,        # eef_step
                                                       0.0)         # jump_threshold
-        if fraction < 0.99:
+        if fraction < 0.85:
             print("iter=", i, "fraction=", fraction)
         else:
             print("start to move cartesian path")
-            arm.execute(plan)
-            rospy.sleep(3)
+            arm.execute(plan, wait=True)
+            arm.stop()
             break
 
 
-def solution2pose(solution):
+def solution2pose(solution, idx=0):
 
     target = geometry_msgs.msg.Pose()
-    target.position.x = solution['base_pose']['p'][0]
-    target.position.y = solution['base_pose']['p'][1]
-    target.position.z = solution['base_pose']['p'][2]
+    target.position.x = solution['base_trajectory'][idx]['p'][0]
+    target.position.y = solution['base_trajectory'][idx]['p'][1]
+    target.position.z = solution['base_trajectory'][idx]['p'][2]
     # target.orientation = trans.transform.rotation
-    target.orientation.x = solution['base_pose']['q'][0]
-    target.orientation.y = solution['base_pose']['q'][1]
-    target.orientation.z = solution['base_pose']['q'][2]
-    target.orientation.w = solution['base_pose']['q'][3]
+    target.orientation.x = solution['base_trajectory'][idx]['q'][0]
+    target.orientation.y = solution['base_trajectory'][idx]['q'][1]
+    target.orientation.z = solution['base_trajectory'][idx]['q'][2]
+    target.orientation.w = solution['base_trajectory'][idx]['q'][3]
 
     return target
+
+def solution2carthesian_path(solution, tf_buffer):
+
+    waypoints = []
+
+
+    tmp = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_arm_7_link', child_frame_id='left_hand_palm_link'))
+    tmp2 = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_arm_7_link', child_frame_id='left_hand_kuka_coupler_bottom'))
+    tmp2_inv = tmp2.inverse()
+
+    c2l = tmp2_inv.to_matrix()
+    l2p = tmp.to_matrix()
+
+    def to_palm_frame(wrist, coupler2link, link2palm):
+
+        base_to_link7 = np.dot(wrist, coupler2link)
+        link7_to_palm = np.dot(base_to_link7, link2palm)
+        #base_to_palm = np.dot(m1,m2)
+        ee_transform = Transform3.from_matrix(link7_to_palm)
+
+        return transform2PoseMsg(ee_transform)
+
+
+    for i in range(len(solution['base_trajectory'])):
+        pose_msg = solution2pose(solution,i)
+
+        wrist_pose = msg2Transform3(pose_msg).to_matrix()
+        wpt = to_palm_frame(wrist_pose, c2l, l2p)
+
+        waypoints.append(wpt)
+
+
+    return waypoints
 
 def transform2PoseMsg(transform3):
 
@@ -125,8 +158,8 @@ def main():
     # rospy.sleep(2)
 
     # scene.remove_world_object("table")
-    # scene.remove_world_object("guard")
-    # rospy.sleep(2)
+    scene.remove_world_object("guard")
+    rospy.sleep(2)
 
     # p = geometry_msgs.msg.PoseStamped()
     # p.header.frame_id = robot.get_planning_frame()
@@ -135,14 +168,19 @@ def main():
     # p.pose.position.z = -0.02
     # p.pose.orientation.w = 1.0
     # scene.add_box("table", p, (1.2, 1.0, 0.04))
+    solution = grasp_service_client.get_grasp_solution()
+    print "Got solution: ", solution
+    cloud_centroid = solution['cloud_centroid']
+    min_pt = solution['cloud_min_pt']
+    max_pt = solution['cloud_max_pt']
 
     p = geometry_msgs.msg.PoseStamped()
     p.header.frame_id = robot.get_planning_frame()
-    p.pose.position.x = 0.5
-    p.pose.position.y = 0.547
-    p.pose.position.z = 0.0
+    p.pose.position.x = cloud_centroid[0] 
+    p.pose.position.y = cloud_centroid[1] 
+    p.pose.position.z = cloud_centroid[2] + 0.10
     p.pose.orientation.w = 1.0
-    scene.add_box("guard", p, (0.1, 0.1, 0.25))
+    scene.add_box("guard", p, (max_pt[0] - min_pt[0], max_pt[1] - min_pt[1], max_pt[2] - min_pt[2]))
 
     ########################################################
     arm = moveit_commander.MoveGroupCommander("left_hand_arm")
@@ -157,38 +195,27 @@ def main():
     gripper_joint_values = gripper.get_current_joint_values()
     print "Left hand: ", gripper_joint_values
     # ### Open
-    gripper_joint_values[0] = 0.0
-    gripper.set_joint_value_target(gripper_joint_values)
-    gripper.go(wait=True)
-    
+
+    open_cmd = raw_input("Open hand? (y/n)")
+    if open_cmd == "y":
+        gripper_joint_values[0] = 0.0
+        gripper.set_joint_value_target(gripper_joint_values)
+        gripper.go(wait=True)
+        
     ### tf2
     tf_buffer = tf2_ros.Buffer()
     listener = tf2_ros.TransformListener(tf_buffer)
+    br = tf.TransformBroadcaster()
 
     ### get target tf
 
-    solution = grasp_service_client.get_grasp_solution()
-    print "Got solution: ", solution
-    wrist_transform = msg2Transform3(solution2pose(solution))
-
-    # offset_transform = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_arm_7_link', child_frame_id='left_hand_kuka_coupler_bottom'))
-    # ee_transform = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='world', child_frame_id='left_hand_kuka_coupler_bottom'))
-    tmp = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_arm_7_link', child_frame_id='left_hand_palm_link'))
-    # tmp2 = msg2Transform3(get_ee_transfrom(tf_buffer, parent_frame_id='left_hand_kuka_coupler_bottom', child_frame_id='left_hand_palm_link'))
-    # offset_transform.inverted()
-    #tmp.inverted()
-    # offset_transform.multiplied(ee_transform)
-    m1 = wrist_transform.to_matrix()
-    m2 = tmp.to_matrix()
-    ee_transform = Transform3.from_matrix(np.dot(m1,m2))
-
-    rotation = tt.quaternion_about_axis(135.0*np.pi/180.0,(0,0,1))
-    ee_transform.q = quaternion_mult(ee_transform.q, rotation)
-    # tt.
     
-    br = tf.TransformBroadcaster()
+    waypoints = solution2carthesian_path(solution, tf_buffer)    
+    ee_transform = msg2Transform3(waypoints[0])
+    
+    
 
-    print tmp.q.to_euler()
+    # print tmp.q.to_euler()
     target_pose = transform2PoseMsg(ee_transform)
     arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
     arm.go(wait=True)
@@ -196,31 +223,20 @@ def main():
     arm.clear_pose_targets()
     arm.stop()
 
-    # target_pose = transform2PoseMsg(ee_transform)
+    scene.remove_world_object("guard")
 
-    ### Joint space
-    # arm.set_pose_target(target_pose,end_effector_link="left_arm_7_link")
-    # arm.go(wait=True)
-    # rospy.sleep(2)
 
-    ### Cartesian space
-    # waypoints = []
-    # waypoints.append(target_pose)
-    # move_cartesian_path(waypoints, arm)
-    # rospy.sleep(2)
+    move_cartesian_path(waypoints[:3], arm)
 
-    # ### Close
-    # gripper_joint_values[0] = 0.7
-    # gripper.set_joint_value_target(gripper_joint_values)
-    # gripper.go(wait=True)
-    # rospy.sleep(2)
+    gripper_joint_values[0] = 0.7
+    gripper.set_joint_value_target(gripper_joint_values)
+    gripper.go(wait=True)
+    rospy.sleep(2)
 
-    ### Cartesian space
-    # target_pose = get_ee_transfrom(tf_buffer, 'ee_target')
-    # waypoints = []
-    # waypoints.append(target_pose)
-    # move_cartesian_path(waypoints, arm)
-    # rospy.sleep(2)
+
+    move_cartesian_path(waypoints[3:], arm)
+    
+
 
     rate = rospy.Rate(30)
     while not rospy.is_shutdown():

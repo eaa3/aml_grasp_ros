@@ -375,7 +375,7 @@ class GraspAppService(GraspApp):
 
     def periodic_cloud_update(self, event):
 
-        crop_min_pt=[0.2, 0.3, -0.25] # table surface: z=-0.05
+        crop_min_pt=[0.2, 0.3, -0.3] # table surface: z=-0.05
         crop_max_pt=[0.95, 0.9, 0.25]
         # x=0.45, y=0.6, z=0.725
         point_cloud, cloud_frame = self.pcl_service.get_processed_cloud(crop_min_pt=crop_min_pt, crop_max_pt=crop_max_pt)#(crop_min_pt=[-1,-1,-1], crop_max_pt=[1,1,1])#PointCloud(o3d.read_point_cloud("../aml_data/jug.pcd"))
@@ -386,7 +386,7 @@ class GraspAppService(GraspApp):
 
 
         if point_cloud:
-            point_cloud.downsample(0.01)
+            point_cloud.downsample(0.001)
             diff = np.abs(point_cloud.n_points() - self.point_cloud.n_points())
             has_changed = diff > 10
             if has_changed:
@@ -398,7 +398,7 @@ class GraspAppService(GraspApp):
                 print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
     def acquire_cloud(self, vis):
-        crop_min_pt=[0.2, 0.3, -0.25] # table surface: z=-0.05
+        crop_min_pt=[0.2, 0.3, -0.3] # table surface: z=-0.05
         crop_max_pt=[0.95, 0.9, 0.25]
 
         point_cloud, cloud_frame = self.pcl_service.get_processed_cloud(crop_min_pt=crop_min_pt, crop_max_pt=crop_max_pt)#(crop_min_pt=[-1,-1,-1], crop_max_pt=[1,1,1])#PointCloud(o3d.read_point_cloud("../aml_data/jug.pcd"))
@@ -407,7 +407,7 @@ class GraspAppService(GraspApp):
 
         if point_cloud:
             self.cloud_frame = cloud_frame
-            point_cloud.downsample(0.01)
+            point_cloud.downsample(0.001)
             self.set_cloud(point_cloud._cloud)
 
             print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
