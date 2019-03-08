@@ -13,6 +13,7 @@ import utils as qr
 import math
 from aml_math import Transform3, quaternion_mult
 import numpy as np
+import atexit
 
 import tf
 
@@ -72,6 +73,7 @@ def msg2Transform3(pose_msg):
     return Transform3(p=p, q=q)
 
 def move_cartesian_path(waypoints, arm):
+    success = False
     for i in range(10):
         (plan, fraction) = arm.compute_cartesian_path(waypoints,   # waypoints to follow
                                                       0.01,        # eef_step
@@ -80,10 +82,13 @@ def move_cartesian_path(waypoints, arm):
             print("iter=", i, "fraction=", fraction)
         else:
             print("start to move cartesian path")
-            arm.execute(plan, wait=True)
+            print("iter=", i, "fraction=", fraction)
+            success = arm.execute(plan, wait=True)
             arm.stop()
+            
             break
 
+    return success
 
 def solution2pose(solution, idx=0):
 
@@ -152,22 +157,23 @@ def main():
 
     moveit_commander.roscpp_initialize(sys.argv)
     rospy.init_node("moveit_commander")
+    atexit.register(moveit_commander.roscpp_shutdown)
 
     robot = moveit_commander.RobotCommander()
     scene = moveit_commander.PlanningSceneInterface()
     # rospy.sleep(2)
 
-    # scene.remove_world_object("table")
+    scene.remove_world_object("table")
     scene.remove_world_object("guard")
     rospy.sleep(2)
 
-    # p = geometry_msgs.msg.PoseStamped()
-    # p.header.frame_id = robot.get_planning_frame()
-    # p.pose.position.x = 0.5
-    # p.pose.position.y = -0.4
-    # p.pose.position.z = -0.02
-    # p.pose.orientation.w = 1.0
-    # scene.add_box("table", p, (1.2, 1.0, 0.04))
+    p = geometry_msgs.msg.PoseStamped()
+    p.header.frame_id = robot.get_planning_frame()
+    p.pose.position.x = 0.55
+    p.pose.position.y = 0
+    p.pose.position.z = -0.33
+    p.pose.orientation.w = 1.0  
+    scene.add_box("table", p, (0.87, 1.77, 0.04))
     solution = grasp_service_client.get_grasp_solution()
     print "Got solution: ", solution
     cloud_centroid = solution['cloud_centroid']
@@ -178,13 +184,23 @@ def main():
     p.header.frame_id = robot.get_planning_frame()
     p.pose.position.x = cloud_centroid[0] 
     p.pose.position.y = cloud_centroid[1] 
-    p.pose.position.z = cloud_centroid[2] + 0.10
+    p.pose.position.z = cloud_centroid[2]
     p.pose.orientation.w = 1.0
     scene.add_box("guard", p, (max_pt[0] - min_pt[0], max_pt[1] - min_pt[1], max_pt[2] - min_pt[2]))
 
+    
     ########################################################
     arm = moveit_commander.MoveGroupCommander("left_hand_arm")
 
+    print "Tolerances"
+    print "Goal joint tol: ", arm.get_goal_joint_tolerance()
+    print "Goal pos tol: ", arm.get_goal_position_tolerance()
+    print "Goal ori tol: ", arm.get_goal_orientation_tolerance()
+
+    arm.set_goal_joint_tolerance(0.1) # default 0.0001
+    arm.set_goal_position_tolerance(0.1) # default 0.0001
+    arm.set_goal_orientation_tolerance(0.1) # default 0.001
+    
     arm.set_max_velocity_scaling_factor(0.25)
     arm.set_max_acceleration_scaling_factor(0.25)
 
@@ -216,6 +232,7 @@ def main():
     
 
     # print tmp.q.to_euler()
+    # Go to pre-grasp pose
     target_pose = transform2PoseMsg(ee_transform)
     arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
     arm.go(wait=True)
@@ -224,16 +241,26 @@ def main():
     arm.stop()
 
     scene.remove_world_object("guard")
+    scene.remove_world_object("table")
 
+    # Finish grasping
+    arm.set_max_velocity_scaling_factor(0.1)
+    arm.set_max_acceleration_scaling_factor(0.1)
+    success = move_cartesian_path(waypoints[:3], arm)
+    if not success:
+        arm.set_pose_target(waypoints[2],end_effector_link="left_hand_palm_link")
+        arm.go(wait=False)
+        rospy.sleep(1)
+        # arm.clear_pose_targets()
+        # arm.stop()
 
-    move_cartesian_path(waypoints[:3], arm)
-
-    gripper_joint_values[0] = 0.7
+    # Close hand
+    gripper_joint_values[0] = 0.78
     gripper.set_joint_value_target(gripper_joint_values)
     gripper.go(wait=True)
     rospy.sleep(2)
 
-
+    # Move up
     move_cartesian_path(waypoints[3:], arm)
     
 
@@ -249,12 +276,21 @@ def main():
         rate.sleep()
 
 
-    moveit_commander.roscpp_shutdown()
+
 
 
 
 if __name__ == '__main__':
     try:
         main()
+
+        # grasp_service_client = GraspServiceClient()
+
+        # moveit_commander.roscpp_initialize(sys.argv)
+        # rospy.init_node("moveit_commander")
+        # atexit.register(moveit_commander.roscpp_shutdown)
+
+        # robot = moveit_commander.RobotCommander()
+        # scene = moveit_commander.PlanningSceneInterface()
     except rospy.ROSInterruptException, e:
         print(e)

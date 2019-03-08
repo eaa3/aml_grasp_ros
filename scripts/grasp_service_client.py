@@ -10,7 +10,7 @@ class GraspServiceClient(object):
     def __init__(self):
 
 
-        print "Waiting for PCL service"
+        print "Waiting for Grasp service"
         rospy.wait_for_service('grasp_service/get_solution')
         rospy.wait_for_service('grasp_service/get_cloud_centroid')
         print "Service found!"
