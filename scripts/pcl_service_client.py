@@ -226,7 +226,7 @@ class PCLService(object):
 
         self._all_fields_order = ['x', 'y', 'z', 'normal_x', 'normal_y', 'normal_z', 'rgb', 'curvature', 'principal_curvature_x', 'principal_curvature_y', 'principal_curvature_z', 'pc1', 'pc2']
 
-        self._sub = rospy.Subscriber(self._point_cloud_topic, PointCloud2, self.point_cloud_cb, queue_size=1)
+        self._sub = rospy.Subscriber(self._point_cloud_topic, PointCloud2, self.point_cloud_cb, queue_size=None)
 
     def pause_sub(self):
 
@@ -234,7 +234,7 @@ class PCLService(object):
 
     def resume(self):
 
-        self._sub = rospy.Subscriber(self._point_cloud_topic, PointCloud2, self.point_cloud_cb, queue_size=1)
+        self._sub = rospy.Subscriber(self._point_cloud_topic, PointCloud2, self.point_cloud_cb, queue_size=None)
 
     def msg2array(self, msg):
 
@@ -390,13 +390,13 @@ class PCLService(object):
 
         if self._current_cloud is None:
             print "Cloud is None"
-            self._cloud_lock.release()
         else:
 
             print "Calling service"
             feature_cloud = self.compute_features(self._current_cloud, view_point, crop_min_pt, crop_max_pt)
 
-            self._cloud_lock.release()
+        
+        self._cloud_lock.release()
 
         return feature_cloud
 

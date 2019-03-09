@@ -42,7 +42,7 @@ bool processRequest_(temporal_grasp_ros::PCLUtility::Request  &req,
         // Transform point cloud
         sensor_msgs::PointCloud2 transformed_msg_cloud;
         pcl_ros::transformPointCloud("world", req.cloud_input, transformed_msg_cloud, *listener);
-
+        
         pcl::PCLPointCloud2 cloud_tmp;
         pcl_conversions::toPCL(transformed_msg_cloud, cloud_tmp);
         pcl::fromPCLPointCloud2(cloud_tmp,*cloud);
@@ -54,6 +54,16 @@ bool processRequest_(temporal_grasp_ros::PCLUtility::Request  &req,
         // int dummy;
         // printf("Is there color?\n");
         // scanf("%d",&dummy);
+
+        tf::StampedTransform transform;
+        try{
+        listener->lookupTransform("/world", req.cloud_input.header.frame_id,  
+                                ros::Time(0), transform);
+        }
+        catch (tf::TransformException ex){
+            ROS_ERROR("%s",ex.what());
+            ros::Duration(1.0).sleep();
+        }
 
         std::cout << "Received cloud with " << cloud->points.size() << " points." << std::endl;
 
@@ -88,8 +98,8 @@ bool processRequest_(temporal_grasp_ros::PCLUtility::Request  &req,
 
 
         // Compute features
-        utils::compute_features(cloud_cropped, point_normal_cloud, feature_cloud, req.view_point[0], req.view_point[1], req.view_point[2], 0.01, 0.01);
-        
+        //utils::compute_features(cloud_cropped, point_normal_cloud, feature_cloud, req.view_point[0], req.view_point[1], req.view_point[2], 0.01, 0.01);
+        utils::compute_features(cloud_cropped, point_normal_cloud, feature_cloud, transform.getOrigin().x(), transform.getOrigin().y(), transform.getOrigin().z(), 0.01, 0.01);
 
         // for( auto e : point_normal_cloud->points){
         //     printf("Color %d\n", e.rgb);

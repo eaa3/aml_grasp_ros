@@ -407,7 +407,9 @@ class GraspAppService(GraspApp):
 
         if point_cloud:
             self.cloud_frame = cloud_frame
-            point_cloud.downsample(0.001)
+            # point_cloud.downsample(0.001)
+
+
             self.set_cloud(point_cloud._cloud)
 
             print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
