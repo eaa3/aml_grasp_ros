@@ -407,7 +407,7 @@ class GraspAppService(GraspApp):
 
         if point_cloud:
             self.cloud_frame = cloud_frame
-            # point_cloud.downsample(0.001)
+            point_cloud.downsample(0.005)
 
 
             self.set_cloud(point_cloud._cloud)
