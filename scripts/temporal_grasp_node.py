@@ -386,14 +386,14 @@ class GraspAppService(GraspApp):
 
 
         if point_cloud:
-            point_cloud.downsample(0.001)
+            point_cloud.downsample(0.005)
             diff = np.abs(point_cloud.n_points() - self.point_cloud.n_points())
-            has_changed = diff > 10
+            has_changed = diff > 200
             if has_changed:
-                # print "Cloud has changed! Diff is: ", diff
+                print "Cloud has changed! Diff is: ", diff
                 self.cloud_frame = cloud_frame
 
-                self.set_cloud(point_cloud._cloud)
+                self.set_cloud(point_cloud._cloud, integrate_cloud=False)
 
                 print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
