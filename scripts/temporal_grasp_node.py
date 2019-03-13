@@ -17,6 +17,7 @@ import functools as ft
 from aml_io import *
 import PyQt4.QtCore as qtc
 import PyQt4.QtGui as qtg
+import argparse
 
 import tf
 
@@ -61,9 +62,19 @@ class GraspAppService(GraspApp):
         super(GraspAppService, self).__init__(grasp_config)
         # GraspApp.__init__(self, kinova_grasp_config)
 
+        arg_fmt = argparse.ArgumentDefaultsHelpFormatter
+        parser = argparse.ArgumentParser(formatter_class=arg_fmt)
+        parser.add_argument('--sim', dest='sim', action='store_true',
+                            help="Specify whether this is a simulated robot")
+        parser.set_defaults(sim=False)
+        args = parser.parse_args(rospy.myargv()[1:])
+
         self.robo_vis.add_key_callback(ord('A'), self.acquire_cloud)
 
-        self.pcl_service = PCLService(point_cloud_topic="/left_camera/depth_registered/points")
+        if args.sim:
+            self.pcl_service = PCLService(point_cloud_topic="/left_camera/sim/depth_registered/points")
+        else:
+            self.pcl_service = PCLService(point_cloud_topic="/left_camera/depth_registered/points")
 
         rospy.init_node('GraspService', anonymous=True)
         self.grasp_service = None
