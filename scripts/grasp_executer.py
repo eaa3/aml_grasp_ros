@@ -16,6 +16,10 @@ import numpy as np
 import atexit
 
 import tf
+from kbhit import KBHit
+
+
+
 
 from grasp_service_client import GraspServiceClient
 
@@ -30,74 +34,6 @@ from boris_tools.trajectory_io import parse_trajectory_file, make_ros_trajectory
 from boris_tools.boris_robot import BorisRobot
 from boris_tools.boris_kinematics import boris_kinematics
 from boris_joint_trajectory_action import MinJerkTrajHelper
-
-
-class OpenLoopGraspExecuter(object):
-
-
-    def __init__(self):
-
-        
-
-        self._moveit_wrapper = MoveitWrapper()
-        moveit_wrapper.init_moveit_commander()
-        rospy.init_node('grasp_player')
-        moveit_wrapper.setup()
-
-        self._kin  = boris_kinematics(root_link="left_arm_base_link")
-        self._boris = BorisRobot(moveit_wrapper = moveit_wrapper)
-
-        self._scene = moveit_wrapper.scene()
-        self._planning_frame = moveit_wrapper.robot().get_planning_frame()
-
-
-        self._tf_buffer = tf2_ros.Buffer()
-        self._listener = tf2_ros.TransformListener(tf_buffer)
-        self._br = tf.TransformBroadcaster()
-
-        self._scene.remove_world_object("table")
-        
-
-        p = geometry_msgs.msg.PoseStamped()
-        p.header.frame_id = self._planning_frame
-        p.pose.position.x = 0.55
-        p.pose.position.y = 0
-        p.pose.position.z = -0.33
-        p.pose.orientation.w = 1.0  
-        self._scene.add_box("table", p, (0.87, 1.77, 0.04))
-
-    def remove_collision_object(self, name):
-
-        self._scene.remove_world_object(name)
-        
-    def add_table(self):
-        self.remove_collision_object("table")
-
-        p = geometry_msgs.msg.PoseStamped()
-        p.header.frame_id = self._planning_frame
-        p.pose.position.x = 0.55
-        p.pose.position.y = 0
-        p.pose.position.z = -0.33
-        p.pose.orientation.w = 1.0  
-        self._scene.add_box("table", p, (0.87, 1.77, 0.04))
-        pass
-
-    def set_object_guard(self, grasp_solution):
-        self.remove_collision_object("guard")
-        
-        # print "Got solution: ", grasp_solution
-        cloud_centroid = grasp_solution['cloud_centroid']
-        min_pt = grasp_solution['cloud_min_pt']
-        max_pt = grasp_solution['cloud_max_pt']
-
-        p = geometry_msgs.msg.PoseStamped()
-        p.header.frame_id = self._planning_frame
-        p.pose.position.x = cloud_centroid[0] 
-        p.pose.position.y = cloud_centroid[1] 
-        p.pose.position.z = cloud_centroid[2]
-        p.pose.orientation.w = 1.0
-        self._scene.add_box("guard", p, (max_pt[0] - min_pt[0], max_pt[1] - min_pt[1], max_pt[2] - min_pt[2]))
-
 
 def get_ee_transfrom(buf, parent_frame_id = "world", child_frame_id = "left_arm_7_link"):
     rate = rospy.Rate(10.0)
@@ -189,6 +125,64 @@ def solution2carthesian_path(solution, tf_buffer):
 
     return waypoints
 
+def cartesian_path2joint_path(waypoints, robot):
+    trajectory = JointTrajectory()
+    trajectory.joint_names = robot.joint_names('left_arm')
+
+    time_sec = 0.5
+    time_incr = 0.5
+    for i in range(len(waypoints)):
+
+        wpt = waypoints[i]
+        joint_positions = robot.inverse_kinematics([wpt.position.x,wpt.position.y,wpt.position.z], 
+                                                    [wpt.orientation.x,wpt.orientation.y,wpt.orientation.z, wpt.orientation.w])
+        
+        if joint_positions is not None:
+
+            point = JointTrajectoryPoint()
+            point.positions = joint_positions
+            point.velocities = [0.0]*len(joint_positions)
+            point.accelerations = [0.0]*len(joint_positions)
+
+            point.time_from_start = rospy.Duration(time_sec)
+
+            trajectory.points.append(point)
+            
+        else:
+            rospy.logwarn("Failed to find ik solution for grasp waypoint %d"%(i,))
+
+        time_sec += time_incr
+
+    return trajectory
+
+
+def solution2hand_joint_path(solution, robot):
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = robot.joint_names('left_hand')
+
+    time_sec = 0.5
+    time_incr = 8.0
+    for i in range(len(solution['joint_trajectory'])):
+
+        
+        joint_positions = [np.mean(solution['joint_trajectory'][i])]
+        
+        point = JointTrajectoryPoint()
+        point.positions = joint_positions
+        point.velocities = [0.0]*len(joint_positions)
+        point.accelerations = [0.0]*len(joint_positions)
+
+        point.time_from_start = rospy.Duration(time_sec)
+
+        trajectory.points.append(point)
+            
+        time_sec += time_incr
+
+    return trajectory
+
+
+
 def transform2PoseMsg(transform3):
 
     target = geometry_msgs.msg.Pose()
@@ -205,144 +199,403 @@ def transform2PoseMsg(transform3):
     return target
 
 
+class GraspExecuter(object):
 
 
+    def __init__(self):
 
-
-
-def main():
-
-    moveit_wrapper = MoveitWrapper()
-    moveit_wrapper.init_moveit_commander()
-
-    rospy.init_node('test_cartesian_trajectory')
-
-    moveit_wrapper.setup()
-    kin  = boris_kinematics(root_link="left_arm_base_link")
-    boris = BorisRobot(moveit_wrapper = moveit_wrapper)
-
-    # trajectory = [-2.02830171585, 1.04696202278, 1.55436050892, -1.44723391533, -0.815707325935, 0.387918055058, -2.68925023079]
-    joint_names = rospy.get_param("left_arm/joints")
-    hand_joint_names = rospy.get_param("left_hand/joints")
-
-    trajectories = ['suitcase_trajectory01.csv',
-                    'cylinder_traj.csv', 
-                    'cylinder_slide_trajectory.csv', 
-                    'test_traj.csv', 
-                    'box_traj.csv',
-                    'ibuprofen_trajectory.csv']
-
-    trajectory, _ = parse_trajectory_file('contact_trajectories/'+trajectories[1])
-
-    traj_msg = make_ros_trajectory_msg(trajectory,joint_names, index_map=(1,8))
-    traj_hand_msg = make_ros_trajectory_msg(trajectory,hand_joint_names[:1], index_map=(8,9))
-    
-    cartesian_traj = make_cartesian_trajectory(trajectory, index_map=(1,8), fk_func=kin.forward_kinematics)
-
-    traj_helper = MinJerkTrajHelper()
-    traj_helper_hand = MinJerkTrajHelper()
-    
-    traj_helper_hand.set_waypoints(traj_hand_msg)
-
-    traj_helper.set_waypoints(traj_msg)
-    print traj_msg.points[0].time_from_start.to_sec()
-
-    time_steps = np.linspace(0,1,1000)
-
-    boris.exit_control_mode()
-    boris.set_control_mode(mode="joint_impedance", limb_name="left_arm")
-
-    boris.goto_with_moveit("left_arm",traj_msg.points[0].positions)
-
-def main():
-    
-
-    
-    ########################################################
-    arm = moveit_commander.MoveGroupCommander("left_hand_arm")
-
-    print "Tolerances"
-    print "Goal joint tol: ", arm.get_goal_joint_tolerance()
-    print "Goal pos tol: ", arm.get_goal_position_tolerance()
-    print "Goal ori tol: ", arm.get_goal_orientation_tolerance()
-
-    arm.set_goal_joint_tolerance(0.1) # default 0.0001
-    arm.set_goal_position_tolerance(0.1) # default 0.0001
-    arm.set_goal_orientation_tolerance(0.1) # default 0.001
-    
-    arm.set_max_velocity_scaling_factor(0.25)
-    arm.set_max_acceleration_scaling_factor(0.25)
-
-    arm_initial_pose = arm.get_current_pose().pose
-    arm_initial_joints = arm.get_current_joint_values()
-
-    gripper = moveit_commander.MoveGroupCommander("left_hand")
-    gripper_joint_values = gripper.get_current_joint_values()
-    print "Left hand: ", gripper_joint_values
-    # ### Open
-
-    open_cmd = raw_input("Open hand? (y/n)")
-    if open_cmd == "y":
-        gripper_joint_values[0] = 0.0
-        gripper.set_joint_value_target(gripper_joint_values)
-        gripper.go(wait=True)
         
-    ### tf2
-    tf_buffer = tf2_ros.Buffer()
-    listener = tf2_ros.TransformListener(tf_buffer)
-    br = tf.TransformBroadcaster()
 
-    ### get target tf
+        self._moveit_wrapper = MoveitWrapper()
+        self._moveit_wrapper.init_moveit_commander()
+        rospy.init_node('grasp_player')
+        self._moveit_wrapper.setup()
+
+        self._kin  = boris_kinematics(root_link="left_arm_base_link")
+        self._boris = BorisRobot(moveit_wrapper = self._moveit_wrapper)
+
+        self._scene = self._moveit_wrapper.scene()
+        self._planning_frame = self._moveit_wrapper.robot().get_planning_frame()
+
+
+        self._tf_buffer = tf2_ros.Buffer()
+        self._listener = tf2_ros.TransformListener(self._tf_buffer)
+        self._br = tf.TransformBroadcaster()
+
+        self._scene.remove_world_object("table")
+        
+
+        p = geometry_msgs.msg.PoseStamped()
+        p.header.frame_id = self._planning_frame
+        p.pose.position.x = 0.55
+        p.pose.position.y = 0
+        p.pose.position.z = -0.33
+        p.pose.orientation.w = 1.0  
+        self._scene.add_box("table", p, (0.87, 1.77, 0.04))
+
+        self._solution = None
+        self._grasp_waypoints = []
+        self._pre_grasp_pose = None
+        self._grasp_arm_joint_path = None
+        self._grasp_hand_joint_path = None
+
+        self._grasp_service_client = GraspServiceClient()
+
+
+        self._boris.set_control_mode(mode="joint_impedance", limb_name="left_arm")
+
+        self._arm_traj_generator = MinJerkTrajHelper()
+        self._hand_traj_generator = MinJerkTrajHelper()
+        self._pre_grasp_traj_generator = MinJerkTrajHelper()
+
+
+        self._kbhit = KBHit()
+
+    def remove_collision_object(self, name):
+
+        self._scene.remove_world_object(name)
+        rospy.sleep(0.5)
+        
+    def add_table(self):
+        self.remove_collision_object("table")
+
+        p = geometry_msgs.msg.PoseStamped()
+        p.header.frame_id = self._planning_frame
+        p.pose.position.x = 0.55
+        p.pose.position.y = 0
+        p.pose.position.z = -0.33
+        p.pose.orientation.w = 1.0  
+        self._scene.add_box("table", p, (0.87, 1.77, 0.04))
+        rospy.sleep(2)
+
+    def add_object_guard(self, grasp_solution):
+        self.remove_collision_object("guard")
+        
+        # print "Got solution: ", grasp_solution
+        cloud_centroid = grasp_solution['cloud_centroid']
+        min_pt = grasp_solution['cloud_min_pt']
+        max_pt = grasp_solution['cloud_max_pt']
+
+        p = geometry_msgs.msg.PoseStamped()
+        p.header.frame_id = self._planning_frame
+        p.pose.position.x = cloud_centroid[0] 
+        p.pose.position.y = cloud_centroid[1] 
+        p.pose.position.z = cloud_centroid[2]
+        p.pose.orientation.w = 1.0
+        self._scene.add_box("guard", p, (max_pt[0] - min_pt[0], max_pt[1] - min_pt[1], max_pt[2] - min_pt[2]))
+
+        rospy.sleep(0.1)
+
+
+
+    def get_solution(self):
+        self._solution = self._grasp_service_client.get_grasp_solution()
+
+        self.add_table()
+        self.add_object_guard(self._solution)
+
+        
+        self._grasp_waypoints = solution2carthesian_path(self._solution, self._tf_buffer)
+
+        self._pre_grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[0])  
+
+
+        is_executable = len(self._pre_grasp_plan.joint_trajectory.points) > 0
+        
+        # if is_executable:
+        #     # current_angles = self._boris.angles("left_arm")
+
+        #     # joint_positions = self._pre_grasp_plan.joint_trajectory.points[-1].positions
+        #     # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), joint_positions)
+        #     # rospy.sleep(1.0)
+        #     self._grasp_arm_joint_path, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3])
+        #     # Set back to current
+        #     # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
+        #     is_executable = fraction >= 0.85
+
+        if is_executable:
+            
+            self._pre_grasp_pose = msg2Transform3(self._grasp_waypoints[0])
+            
+           
+            #cartesian_path2joint_path(self._grasp_waypoints, self._boris)
+            self._grasp_hand_joint_path = solution2hand_joint_path(self._solution, self._boris)
+            #print self._grasp_hand_joint_path
+
+            self._pre_grasp_traj_generator.set_waypoints(self._pre_grasp_plan.joint_trajectory)
+            self._hand_traj_generator.set_waypoints(self._grasp_hand_joint_path)
+
+            rospy.loginfo("Pre grasp plan length %d"%(len(self._pre_grasp_plan.joint_trajectory.points),))
+            rospy.loginfo("Pre grasp plan total time %f"%(self._pre_grasp_plan.joint_trajectory.points[-1].time_from_start.to_sec(),))
+            
+            rospy.loginfo("Hand path length %d"%(len(self._grasp_hand_joint_path.points),))
+            rospy.loginfo("Hand path total time %f"%(self._grasp_hand_joint_path.points[-1].time_from_start.to_sec(),))
+            
+
+        
+         
+        # state = self._moveit_wrapper.robot().get_current_state()
+
+        # print "Robot state"
+        # print state
+
+        #group = self._moveit_wrapper.get_group("left_hand_arm")
+          
+        
+
+        return is_executable
+
+    def goto_pregrasp(self):
+
+        self._boris.execute_moveit_plan("left_hand_arm", self._pre_grasp_plan)
+
+    def execute_pre_grasp(self):
+
+        rospy.loginfo("Pre Grasp Execution!!")
+        key = None
+        time_steps = np.linspace(0.0,1.0,1000)
+        step = 0
+
+        def exec_step(step):
+
+            joint_goal = self._pre_grasp_traj_generator.get_point_t(time_steps[step])
+
+            print "CurrArmState:", self._boris.angles('left_arm')
+            print "ArmGoal[%.2f]: "%(time_steps[step],), joint_goal.time_from_start.to_sec(), " step=", step, " pos: ",joint_goal.positions
+            cmd = self._boris.cmd_joint_angles(angles=joint_goal.positions,execute=True)
+            # self._boris.goto_joint_angles('left_hand',hand_goal.positions)
+        
+        loop_rate = rospy.Rate(30.0)
+        while not rospy.is_shutdown() and key != 'q':
+
+            key = self._kbhit.getch()
+
+            if key == '.':
+                step = step + 1
+                if step >= len(time_steps):
+                    step = len(time_steps)-1
+                rospy.loginfo("Step %d"%(step,))
+
+                exec_step(step)
+                
+                
+            if key == ',':
+
+                step = step-1
+                if step < 0:
+                    step = 0
+
+                exec_step(step)
+
+                rospy.loginfo("Step %d"%(step,))
+
+            loop_rate.sleep()
+        rospy.loginfo("Leaving Pre Grasp Execution!!")
+
+    def execute_grasp(self):
+        
+        self.remove_collision_object("guard")
+        self.remove_collision_object("table")
+
+        rospy.loginfo("Grasp Execution!!")
+        key = None
+        time_steps = np.linspace(0.0,1.0,200)
+        time_steps_arm = np.linspace(0.0,1.0,100)
+        step = 0
+        step_arm = 0
+
+        def next_step(time_steps, step):
+            step = step + 1
+            if step >= len(time_steps):
+                step = len(time_steps)-1
+
+            return step
+
+        def prev_step(time_steps, step):
+
+            step = step-1
+            if step < 0:
+                step = 0
+
+
+            return step
+
+        self._grasp_arm_joint_path, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3])
+        # Set back to current
+        # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
+        is_executable = fraction >= 0.85
+        if not is_executable:
+
+            rospy.logwarn("Grasp not executable, maybe try again or try new grasp")
+            return
+
+        self._grasp_arm_joint_path = self._grasp_arm_joint_path.joint_trajectory
+
+        self._arm_traj_generator.set_waypoints(self._grasp_arm_joint_path)
+
+        rospy.loginfo("Grasp path length %d"%(len(self._grasp_arm_joint_path.points),))
+        rospy.loginfo("Grasp path total time %f"%(self._grasp_arm_joint_path.points[-1].time_from_start.to_sec(),))
+
+        def step_grasp(step, arm_step):
+
+            joint_goal = self._arm_traj_generator.get_point_t(time_steps_arm[arm_step])
+            hand_goal = self._hand_traj_generator.get_point_t(time_steps[step])
+
+            print "HandGoal: ", hand_goal.time_from_start.to_sec(), " step=", step, " pos: ",hand_goal.positions
+            print "CurrArmState:", self._boris.angles('left_arm')
+            print "ArmGoal: ", hand_goal.time_from_start.to_sec(), " step=", step, " pos: ",joint_goal.positions
+            cmd = self._boris.cmd_joint_angles(angles=joint_goal.positions,execute=True)
+            self._boris.goto_joint_angles('left_hand',hand_goal.positions)
+        
+        loop_rate = rospy.Rate(30.0)
+        while not rospy.is_shutdown() and key != 'q':
+
+            key = self._kbhit.getch()
+
+            if key == '.':
+                step = next_step(time_steps, step)
+                step_arm = next_step(time_steps_arm,step_arm)  
+                rospy.loginfo("Step %d"%(step,))
+
+                step_grasp(step, step_arm)
+                
+                
+            if key == ',':
+
+                step = prev_step(time_steps, step)
+                step_arm = prev_step(time_steps_arm,step_arm)  
+                rospy.loginfo("Step %d"%(step,))
+
+                step_grasp(step, step_arm)
+
+            loop_rate.sleep()
+        rospy.loginfo("Leaving Grasp Execution!!")
+
+    def run(self):
+
+        rospy.loginfo("Running!!")
+        
+        loop_rate = rospy.Rate(30)
+        has_solution = False
+        while not rospy.is_shutdown():
+
+            key = self._kbhit.getch()
+
+            if key == "0":
+                
+                has_solution = self.get_solution()
+                rospy.loginfo("Queried solution %s"%(has_solution,))
+
+            elif key == "1" and has_solution:
+               #self.goto_pregrasp()
+               self.execute_pre_grasp()
+            elif key == "2" and has_solution:
+                self.execute_grasp()
+            elif not has_solution:
+
+                rospy.logwarn("No grasp solution. Press 0.")
+                
+
+                
+
+            loop_rate.sleep()
+
+        
+        # goto with pre-grasp boris.goto_with_moveit("left_arm",traj_msg.points[0].positions)
+        
+
+
+def main():
+    
+    grasp_executer = GraspExecuter()
+
+   
+    grasp_executer.run()
+    ########################################################
+    # arm = moveit_commander.MoveGroupCommander("left_hand_arm")
+
+    # print "Tolerances"
+    # print "Goal joint tol: ", arm.get_goal_joint_tolerance()
+    # print "Goal pos tol: ", arm.get_goal_position_tolerance()
+    # print "Goal ori tol: ", arm.get_goal_orientation_tolerance()
+
+    # arm.set_goal_joint_tolerance(0.1) # default 0.0001
+    # arm.set_goal_position_tolerance(0.1) # default 0.0001
+    # arm.set_goal_orientation_tolerance(0.1) # default 0.001
+    
+    # arm.set_max_velocity_scaling_factor(0.25)
+    # arm.set_max_acceleration_scaling_factor(0.25)
+
+    # arm_initial_pose = arm.get_current_pose().pose
+    # arm_initial_joints = arm.get_current_joint_values()
+
+    # gripper = moveit_commander.MoveGroupCommander("left_hand")
+    # gripper_joint_values = gripper.get_current_joint_values()
+    # print "Left hand: ", gripper_joint_values
+    # # ### Open
+
+    # open_cmd = raw_input("Open hand? (y/n)")
+    # if open_cmd == "y":
+    #     gripper_joint_values[0] = 0.0
+    #     gripper.set_joint_value_target(gripper_joint_values)
+    #     gripper.go(wait=True)
+        
+    # ### tf2
+    # tf_buffer = tf2_ros.Buffer()
+    # listener = tf2_ros.TransformListener(tf_buffer)
+    # br = tf.TransformBroadcaster()
+
+    # ### get target tf
 
     
-    waypoints = solution2carthesian_path(solution, tf_buffer)    
-    ee_transform = msg2Transform3(waypoints[0])
+    # waypoints = solution2carthesian_path(solution, tf_buffer)    
+    # ee_transform = msg2Transform3(waypoints[0])
     
     
 
-    # print tmp.q.to_euler()
-    # Go to pre-grasp pose
-    target_pose = transform2PoseMsg(ee_transform)
-    arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
-    arm.go(wait=True)
-    rospy.sleep(2)
-    arm.clear_pose_targets()
-    arm.stop()
+    # # print tmp.q.to_euler()
+    # # Go to pre-grasp pose
+    # target_pose = transform2PoseMsg(ee_transform)
+    # arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
+    # arm.go(wait=True)
+    # rospy.sleep(2)
+    # arm.clear_pose_targets()
+    # arm.stop()
 
-    scene.remove_world_object("guard")
-    scene.remove_world_object("table")
+    # scene.remove_world_object("guard")
+    # scene.remove_world_object("table")
 
-    # Finish grasping
-    arm.set_max_velocity_scaling_factor(0.1)
-    arm.set_max_acceleration_scaling_factor(0.1)
-    success = move_cartesian_path(waypoints[:3], arm)
-    if not success:
-        arm.set_pose_target(waypoints[2],end_effector_link="left_hand_palm_link")
-        arm.go(wait=False)
-        rospy.sleep(1)
-        # arm.clear_pose_targets()
-        # arm.stop()
+    # # Finish grasping
+    # arm.set_max_velocity_scaling_factor(0.1)
+    # arm.set_max_acceleration_scaling_factor(0.1)
+    # success = move_cartesian_path(waypoints[:3], arm)
+    # if not success:
+    #     arm.set_pose_target(waypoints[2],end_effector_link="left_hand_palm_link")
+    #     arm.go(wait=False)
+    #     rospy.sleep(1)
+    #     # arm.clear_pose_targets()
+    #     # arm.stop()
 
-    # Close hand
-    gripper_joint_values[0] = 0.78
-    gripper.set_joint_value_target(gripper_joint_values)
-    gripper.go(wait=True)
-    rospy.sleep(2)
+    # # Close hand
+    # gripper_joint_values[0] = 0.78
+    # gripper.set_joint_value_target(gripper_joint_values)
+    # gripper.go(wait=True)
+    # rospy.sleep(2)
 
-    # Move up
-    move_cartesian_path(waypoints[3:], arm)
+    # # Move up
+    # move_cartesian_path(waypoints[3:], arm)
     
 
 
-    rate = rospy.Rate(30)
-    while not rospy.is_shutdown():
-        br.sendTransform(ee_transform.p,
-                        ee_transform.q,
-                        rospy.Time.now(),
-                        "grasp_goal",
-                        "world")
+    # rate = rospy.Rate(30)
+    # while not rospy.is_shutdown():
+    #     br.sendTransform(ee_transform.p,
+    #                     ee_transform.q,
+    #                     rospy.Time.now(),
+    #                     "grasp_goal",
+    #                     "world")
 
-        rate.sleep()
+    #     rate.sleep()
 
 
 
