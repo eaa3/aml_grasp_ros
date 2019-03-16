@@ -235,9 +235,11 @@ class GraspExecuter(object):
 
         self._solution = None
         self._grasp_waypoints = []
-        self._pre_grasp_pose = None
+        self._pre_grasp_plan = None
         self._grasp_arm_joint_path = None
         self._grasp_hand_joint_path = None
+
+        self._post_grasp_plan = None
 
         self._grasp_service_client = GraspServiceClient()
 
@@ -247,6 +249,7 @@ class GraspExecuter(object):
         self._arm_traj_generator = MinJerkTrajHelper()
         self._hand_traj_generator = MinJerkTrajHelper()
         self._pre_grasp_traj_generator = MinJerkTrajHelper()
+        self._post_grasp_traj_generator = MinJerkTrajHelper()
 
 
         self._kbhit = KBHit()
@@ -263,7 +266,7 @@ class GraspExecuter(object):
         p.header.frame_id = self._planning_frame
         p.pose.position.x = 0.55
         p.pose.position.y = 0
-        p.pose.position.z = -0.33
+        p.pose.position.z = -0.35#-0.34
         p.pose.orientation.w = 1.0  
         self._scene.add_box("table", p, (0.87, 1.77, 0.04))
         rospy.sleep(2)
@@ -297,6 +300,12 @@ class GraspExecuter(object):
         
         self._grasp_waypoints = solution2carthesian_path(self._solution, self._tf_buffer)
 
+        group = self._moveit_wrapper.get_group("left_hand_arm")
+        group.set_goal_joint_tolerance(0.02) # default 0.0001
+        group.set_goal_position_tolerance(0.05) # default 0.0001
+        group.set_goal_orientation_tolerance(0.02) # default 0.001
+
+        self._grasp_waypoints[0].position.z += 0.10
         self._pre_grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[0])  
 
 
@@ -345,9 +354,75 @@ class GraspExecuter(object):
 
         return is_executable
 
+    def update_step(self, step, time_steps, incr):
+        step = step + incr
+
+        if step >= len(time_steps):
+            step = len(time_steps)-1
+        elif step < 0:
+            step = 0
+
+        return step
+
     def goto_pregrasp(self):
 
         self._boris.execute_moveit_plan("left_hand_arm", self._pre_grasp_plan)
+
+    def plan_grasp(self):
+
+        self.remove_collision_object("guard")
+        self.remove_collision_object("table")
+        self._grasp_arm_joint_path, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3], 
+                                                                                         eef_step = 0.015, jump_threshold = 10.0)
+        # Set back to current
+        # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
+        is_executable = fraction >= 0.85
+
+        ## try to plan final goal in case cartesian path
+        if not is_executable:
+            self._grasp_arm_joint_path = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[2])  
+            is_executable = len(self._grasp_arm_joint_path.joint_trajectory.points) > 0
+
+        if not is_executable:
+
+            rospy.logwarn("Grasp not executable, maybe try again or try new grasp")
+        
+        else:
+
+            self._grasp_arm_joint_path = self._grasp_arm_joint_path.joint_trajectory
+
+            self._arm_traj_generator.set_waypoints(self._grasp_arm_joint_path)
+
+            rospy.loginfo("Grasp path length %d"%(len(self._grasp_arm_joint_path.points),))
+            rospy.loginfo("Grasp path total time %f"%(self._grasp_arm_joint_path.points[-1].time_from_start.to_sec(),))
+        
+        
+        return is_executable
+
+    def plan_post_grasp(self):
+
+        self.remove_collision_object("guard")
+        self.remove_collision_object("table")
+        self._grasp_waypoints[3].position.z += 0.08
+        self._post_grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm",self._grasp_waypoints[3])
+        # Set back to current
+        # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
+        is_executable = len(self._post_grasp_plan.joint_trajectory.points) > 0
+        if not is_executable:
+
+            rospy.logwarn("Grasp not executable, maybe try again or try new grasp")
+        
+        else:
+
+            self._post_grasp_plan = self._post_grasp_plan.joint_trajectory
+
+            self._post_grasp_traj_generator.set_waypoints(self._grasp_arm_joint_path)
+
+            rospy.loginfo("Grasp path length %d"%(len(self._grasp_arm_joint_path.points),))
+            rospy.loginfo("Grasp path total time %f"%(self._grasp_arm_joint_path.points[-1].time_from_start.to_sec(),))
+        
+        
+        return is_executable
 
     def execute_pre_grasp(self):
 
@@ -355,6 +430,8 @@ class GraspExecuter(object):
         key = None
         time_steps = np.linspace(0.0,1.0,1000)
         step = 0
+
+
 
         def exec_step(step):
 
@@ -366,27 +443,47 @@ class GraspExecuter(object):
             # self._boris.goto_joint_angles('left_hand',hand_goal.positions)
         
         loop_rate = rospy.Rate(30.0)
+        play_forward = False
+        play_backward = False
         while not rospy.is_shutdown() and key != 'q':
-
-            key = self._kbhit.getch()
+            
+            if self._kbhit.kbhit():
+                key = self._kbhit.getch()
 
             if key == '.':
-                step = step + 1
-                if step >= len(time_steps):
-                    step = len(time_steps)-1
+                
                 rospy.loginfo("Step %d"%(step,))
-
+                step = self.update_step(step, time_steps,1)
                 exec_step(step)
                 
                 
             if key == ',':
 
-                step = step-1
-                if step < 0:
-                    step = 0
-
+                step = self.update_step(step, time_steps,-1)
                 exec_step(step)
 
+                rospy.loginfo("Step %d"%(step,))
+
+            if key == ']':
+                play_forward = True
+                play_backward = False
+                rospy.loginfo("Playing forward")
+            elif key == '[':
+                play_forward = False
+                play_backward = True
+                rospy.loginfo("Playing backward")
+            elif key == 'p' and (play_forward or play_backward):
+                play_forward = False
+                play_backward = False
+                rospy.loginfo("Halt open loop playing")
+
+            if play_forward:
+                step = self.update_step(step, time_steps,1)
+                exec_step(step)
+                rospy.loginfo("Step %d"%(step,))
+            elif play_backward:
+                step = self.update_step(step, time_steps,-1)
+                exec_step(step)
                 rospy.loginfo("Step %d"%(step,))
 
             loop_rate.sleep()
@@ -394,8 +491,7 @@ class GraspExecuter(object):
 
     def execute_grasp(self):
         
-        self.remove_collision_object("guard")
-        self.remove_collision_object("table")
+       
 
         rospy.loginfo("Grasp Execution!!")
         key = None
@@ -403,38 +499,6 @@ class GraspExecuter(object):
         time_steps_arm = np.linspace(0.0,1.0,100)
         step = 0
         step_arm = 0
-
-        def next_step(time_steps, step):
-            step = step + 1
-            if step >= len(time_steps):
-                step = len(time_steps)-1
-
-            return step
-
-        def prev_step(time_steps, step):
-
-            step = step-1
-            if step < 0:
-                step = 0
-
-
-            return step
-
-        self._grasp_arm_joint_path, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3])
-        # Set back to current
-        # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
-        is_executable = fraction >= 0.85
-        if not is_executable:
-
-            rospy.logwarn("Grasp not executable, maybe try again or try new grasp")
-            return
-
-        self._grasp_arm_joint_path = self._grasp_arm_joint_path.joint_trajectory
-
-        self._arm_traj_generator.set_waypoints(self._grasp_arm_joint_path)
-
-        rospy.loginfo("Grasp path length %d"%(len(self._grasp_arm_joint_path.points),))
-        rospy.loginfo("Grasp path total time %f"%(self._grasp_arm_joint_path.points[-1].time_from_start.to_sec(),))
 
         def step_grasp(step, arm_step):
 
@@ -448,13 +512,17 @@ class GraspExecuter(object):
             self._boris.goto_joint_angles('left_hand',hand_goal.positions)
         
         loop_rate = rospy.Rate(30.0)
+        play_forward = False
+        play_backward = False
         while not rospy.is_shutdown() and key != 'q':
 
-            key = self._kbhit.getch()
+            key = None
+            if self._kbhit.kbhit():
+                key = self._kbhit.getch()
 
             if key == '.':
-                step = next_step(time_steps, step)
-                step_arm = next_step(time_steps_arm,step_arm)  
+                step = self.update_step(step, time_steps,1)
+                step_arm = self.update_step(step_arm, time_steps_arm,1)  
                 rospy.loginfo("Step %d"%(step,))
 
                 step_grasp(step, step_arm)
@@ -462,14 +530,105 @@ class GraspExecuter(object):
                 
             if key == ',':
 
-                step = prev_step(time_steps, step)
-                step_arm = prev_step(time_steps_arm,step_arm)  
+                step = self.update_step(step, time_steps,-1)
+                step_arm = self.update_step(step_arm, time_steps_arm,-1)    
                 rospy.loginfo("Step %d"%(step,))
 
                 step_grasp(step, step_arm)
 
+
+            if key == ']':
+                play_forward = True
+                play_backward = False
+                rospy.loginfo("Playing forward")
+            elif key == '[':
+                play_forward = False
+                play_backward = True
+                rospy.loginfo("Playing backward")
+            elif key == 'p' and (play_forward or play_backward):
+                play_forward = False
+                play_backward = False
+                rospy.loginfo("Halt open loop playing")
+
+            if play_forward:
+                step = self.update_step(step, time_steps,1)
+                step_arm = self.update_step(step_arm, time_steps_arm,1)  
+                step_grasp(step, step_arm)
+                rospy.loginfo("Step %d"%(step,))
+            elif play_backward:
+                step = self.update_step(step, time_steps,-1)
+                step_arm = self.update_step(step_arm, time_steps_arm,-1)  
+                step_grasp(step, step_arm)
+                rospy.loginfo("Step %d"%(step,))
+
             loop_rate.sleep()
         rospy.loginfo("Leaving Grasp Execution!!")
+
+
+    def step_execution(self, step, time_steps, trajectory_generator, command_func):
+
+        joint_goal = trajectory_generator.get_point_t(time_steps[step])
+        command_func(joint_goal.positions)
+
+    def execute_post_grasp(self):
+
+        rospy.loginfo("Post Grasp Execution!!")
+        key = None
+        time_steps = np.linspace(0.0,1.0,200)
+        #time_steps_arm = np.linspace(0.0,1.0,100)
+        step = 0
+
+    
+        loop_rate = rospy.Rate(30.0)
+        play_forward = False
+        play_backward = False
+        while not rospy.is_shutdown() and key != 'q':
+
+            key = None
+            if self._kbhit.kbhit():
+                key = self._kbhit.getch()
+
+            if key == '.':
+                step = self.update_step(step, time_steps,1)
+                rospy.loginfo("Step %d"%(step,))
+
+                self.step_execution(step, time_steps, self._post_grasp_traj_generator, self._boris.cmd_joint_angles)
+                
+                
+            if key == ',':
+
+                step = self.update_step(step, time_steps,-1)
+                rospy.loginfo("Step %d"%(step,))
+
+                self.step_execution(step, time_steps, self._post_grasp_traj_generator, self._boris.cmd_joint_angles)
+
+
+            if key == ']':
+                play_forward = True
+                play_backward = False
+                rospy.loginfo("Playing forward")
+            elif key == '[':
+                play_forward = False
+                play_backward = True
+                rospy.loginfo("Playing backward")
+            elif key == 'p' and (play_forward or play_backward):
+                play_forward = False
+                play_backward = False
+                rospy.loginfo("Halt open loop playing")
+
+            if play_forward:
+                step = self.update_step(step, time_steps,1)
+                self.step_execution(step, time_steps, self._post_grasp_traj_generator, self._boris.cmd_joint_angles)
+                rospy.loginfo("Step %d"%(step,))
+            elif play_backward:
+                step = self.update_step(step, time_steps,-1)
+                self.step_execution(step, time_steps, self._post_grasp_traj_generator, self._boris.cmd_joint_angles)
+
+                rospy.loginfo("Step %d"%(step,))
+
+            loop_rate.sleep()
+            
+        rospy.loginfo("Leaving Post Grasp Execution!!")
 
     def run(self):
 
@@ -477,6 +636,8 @@ class GraspExecuter(object):
         
         loop_rate = rospy.Rate(30)
         has_solution = False
+        has_plan = False
+        has_post_grasp_plan = False
         while not rospy.is_shutdown():
 
             key = self._kbhit.getch()
@@ -490,13 +651,32 @@ class GraspExecuter(object):
                #self.goto_pregrasp()
                self.execute_pre_grasp()
             elif key == "2" and has_solution:
-                self.execute_grasp()
+                if has_plan:
+                    self.execute_grasp()
+                else:
+                    rospy.logwarn("No grasp plan has been generated. Press 9 to attempt to generate one.")
+            elif key == "3" and has_solution:
+                if has_post_grasp_plan:
+                    self.execute_post_grasp()
+                else:
+                    rospy.logwarn("No post-grasp plan has been generated. Press 8 to attempt to generate one.")
+            elif key == "9":
+                has_plan = self.plan_grasp()
+            elif key == "8":
+                has_post_grasp_plan = self.plan_post_grasp()
+            elif key == "r":
+                self.remove_collision_object("table")
+                self.remove_collision_object("guard")
+            elif key == "t":
+                self.add_table()
+            elif key == "g":
+                self.add_object_guard()
             elif not has_solution:
 
                 rospy.logwarn("No grasp solution. Press 0.")
                 
 
-                
+            
 
             loop_rate.sleep()
 
