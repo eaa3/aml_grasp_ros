@@ -342,6 +342,7 @@ class PCLService(object):
         # cloud_frame.inverted()
         return cloud_frame
 
+
     def point_cloud_cb(self, cloud2_msg):
 
         # Lock mutex

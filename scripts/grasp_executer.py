@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import sys
+import sys, subprocess
 import copy
 import rospy
 import moveit_commander
@@ -252,7 +252,24 @@ class GraspExecuter(object):
         self._post_grasp_traj_generator = MinJerkTrajHelper()
 
 
+        self._scan_waypoints = np.load("/home/earruda/Projects/boris_ws/src/boris-robot/boris_tools/scripts/scan_waypoints2.npy")
+
+
         self._kbhit = KBHit()
+
+    def scan_object(self):
+        
+        command = "rosservice call /grasp_service/acquire_cloud"
+        for waypoint in self._scan_waypoints:
+
+            # goto
+            self._boris.goto_with_moveit("left_arm",waypoint)
+            # scan
+            process = subprocess.Popen(command.split(), stdout=subprocess.PIPE)
+            output, error = process.communicate()
+
+
+            print output
 
     def remove_collision_object(self, name):
 
@@ -295,7 +312,7 @@ class GraspExecuter(object):
         self._solution = self._grasp_service_client.get_grasp_solution()
 
         self.add_table()
-        self.add_object_guard(self._solution)
+        #self.add_object_guard(self._solution)
 
         
         self._grasp_waypoints = solution2carthesian_path(self._solution, self._tf_buffer)
@@ -416,10 +433,10 @@ class GraspExecuter(object):
 
             self._post_grasp_plan = self._post_grasp_plan.joint_trajectory
 
-            self._post_grasp_traj_generator.set_waypoints(self._grasp_arm_joint_path)
+            self._post_grasp_traj_generator.set_waypoints(self._post_grasp_plan)
 
-            rospy.loginfo("Grasp path length %d"%(len(self._grasp_arm_joint_path.points),))
-            rospy.loginfo("Grasp path total time %f"%(self._grasp_arm_joint_path.points[-1].time_from_start.to_sec(),))
+            rospy.loginfo("Grasp path length %d"%(len(self._post_grasp_plan.points),))
+            rospy.loginfo("Grasp path total time %f"%(self._post_grasp_plan.points[-1].time_from_start.to_sec(),))
         
         
         return is_executable
@@ -669,8 +686,12 @@ class GraspExecuter(object):
                 self.remove_collision_object("guard")
             elif key == "t":
                 self.add_table()
-            elif key == "g":
-                self.add_object_guard()
+            elif key == "g" and has_solution:
+                self.add_object_guard(self._solution)
+            elif key =="e":
+                self.remove_collision_object("guard")
+            elif key == "s":
+                self.scan_object()
             elif not has_solution:
 
                 rospy.logwarn("No grasp solution. Press 0.")

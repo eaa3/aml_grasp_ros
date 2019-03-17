@@ -105,6 +105,7 @@ class GraspAppService(GraspApp):
 
         self._solution_avail_cb = self.publish_solutions
 
+       
         self._solution_publisher = rospy.Publisher("/grasp/solutions", GraspSolutionSet, queue_size=1)
         self.br = tf.TransformBroadcaster()
 
@@ -215,6 +216,8 @@ class GraspAppService(GraspApp):
         resp.success = True
 
         return resp
+
+
 
     def toggle_cloud_update_call(self, req):
 
@@ -409,10 +412,11 @@ class GraspAppService(GraspApp):
                 print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
     def acquire_cloud(self, vis):
-        crop_min_pt=[0.2, 0.3, -0.3] # table surface: z=-0.05
+        crop_min_pt=[0.2, 0.3, -0.3]#[0.2, 0.3, -0.5]#[0.2, 0.3, -0.3] # table surface: z=-0.05
         crop_max_pt=[0.95, 0.9, 0.25]
 
         point_cloud, cloud_frame = self.pcl_service.get_processed_cloud(crop_min_pt=crop_min_pt, crop_max_pt=crop_max_pt)#(crop_min_pt=[-1,-1,-1], crop_max_pt=[1,1,1])#PointCloud(o3d.read_point_cloud("../aml_data/jug.pcd"))
+        
 
         publish_crop_cube_maker(crop_min_pt, crop_max_pt)
 
@@ -425,6 +429,8 @@ class GraspAppService(GraspApp):
 
             print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
+            self.cloud_frame = self.pcl_service.compute_cloud_frame(self.point_cloud.points())
+            
             self.mesh_frame2.transformation = self.cloud_frame.to_matrix()
             # vis.add_geometry(self.point_cloud._cloud)
             # self.pcl_service.pause_sub()
