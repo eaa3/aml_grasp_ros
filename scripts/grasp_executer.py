@@ -159,14 +159,17 @@ def cartesian_path2joint_path(waypoints, robot):
 def solution2hand_joint_path(solution, robot):
 
     trajectory = JointTrajectory()
-    trajectory.joint_names = robot.joint_names('left_hand')
-
+    trajectory.joint_names = ["left_hand_synergy_joint"]
+    
     time_sec = 0.5
     time_incr = 8.0
     for i in range(len(solution['joint_trajectory'])):
 
-        
-        joint_positions = [np.mean(solution['joint_trajectory'][i])]
+        #extrapolation = 1.1
+        joint_cmd = np.max(solution['joint_trajectory'][i])
+        joint_cmd = np.minimum(joint_cmd*1.15,1.0)
+        rospy.loginfo("Joint command %d = %f"%(i,joint_cmd))
+        joint_positions = [joint_cmd]
         
         point = JointTrajectoryPoint()
         point.positions = joint_positions
@@ -312,7 +315,7 @@ class GraspExecuter(object):
         self._solution = self._grasp_service_client.get_grasp_solution()
 
         self.add_table()
-        #self.add_object_guard(self._solution)
+        self.add_object_guard(self._solution)
 
         
         self._grasp_waypoints = solution2carthesian_path(self._solution, self._tf_buffer)
@@ -347,7 +350,8 @@ class GraspExecuter(object):
             #cartesian_path2joint_path(self._grasp_waypoints, self._boris)
             self._grasp_hand_joint_path = solution2hand_joint_path(self._solution, self._boris)
             #print self._grasp_hand_joint_path
-
+            print "Trajectory hand ", len(self._solution['joint_trajectory'][0])
+            print "Hand joints %d ", len(self._pre_grasp_plan.joint_trajectory.points)
             self._pre_grasp_traj_generator.set_waypoints(self._pre_grasp_plan.joint_trajectory)
             self._hand_traj_generator.set_waypoints(self._grasp_hand_joint_path)
 
