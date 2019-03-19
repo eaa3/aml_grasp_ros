@@ -160,7 +160,7 @@ def solution2hand_joint_path(solution, robot):
 
     trajectory = JointTrajectory()
     trajectory.joint_names = ["left_hand_synergy_joint"]
-    
+
     time_sec = 0.5
     time_incr = 8.0
     for i in range(len(solution['joint_trajectory'])):
@@ -263,6 +263,7 @@ class GraspExecuter(object):
     def scan_object(self):
         
         command = "rosservice call /grasp_service/acquire_cloud"
+        self._boris.set_vel_accel_scaling("left_arm", 0.30, 0.30)
         for waypoint in self._scan_waypoints:
 
             # goto
@@ -273,6 +274,8 @@ class GraspExecuter(object):
 
 
             print output
+
+        self._boris.set_vel_accel_scaling("left_arm", 0.25, 0.25)
 
     def remove_collision_object(self, name):
 
@@ -321,9 +324,9 @@ class GraspExecuter(object):
         self._grasp_waypoints = solution2carthesian_path(self._solution, self._tf_buffer)
 
         group = self._moveit_wrapper.get_group("left_hand_arm")
-        group.set_goal_joint_tolerance(0.02) # default 0.0001
-        group.set_goal_position_tolerance(0.05) # default 0.0001
-        group.set_goal_orientation_tolerance(0.02) # default 0.001
+        group.set_goal_joint_tolerance(0.01) # default 0.0001
+        group.set_goal_position_tolerance(0.025) # default 0.0001
+        group.set_goal_orientation_tolerance(0.01) # default 0.001
 
         self._grasp_waypoints[0].position.z += 0.10
         self._pre_grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[0])  
@@ -516,8 +519,8 @@ class GraspExecuter(object):
 
         rospy.loginfo("Grasp Execution!!")
         key = None
-        time_steps = np.linspace(0.0,1.0,200)
-        time_steps_arm = np.linspace(0.0,1.0,100)
+        time_steps = np.linspace(0.0,1.0,300)
+        time_steps_arm = np.linspace(0.0,1.0,150)
         step = 0
         step_arm = 0
 
@@ -557,6 +560,17 @@ class GraspExecuter(object):
 
                 step_grasp(step, step_arm)
 
+            wrench = self._boris.wrench()
+            force = np.array([wrench.wrench.force.x, wrench.wrench.force.y, wrench.wrench.force.z])
+
+            # If force is larger than 5 we stop
+            force_norm = np.linalg.norm(force)
+            
+            if force_norm >= 15.0:
+                key = '['
+                rospy.logwarn("External forces too high %.3f"%(force_norm,))
+            else:
+                rospy.loginfo("External forces %.3f"%(force_norm,))
 
             if key == ']':
                 play_forward = True
