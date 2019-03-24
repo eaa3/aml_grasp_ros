@@ -163,11 +163,15 @@ def solution2hand_joint_path(solution, robot):
 
     time_sec = 0.5
     time_incr = 8.0
-    for i in range(len(solution['joint_trajectory'])):
+    n_waypoints = len(solution['joint_trajectory'])
+    for i in range(n_waypoints):
 
         #extrapolation = 1.1
         joint_cmd = np.max(solution['joint_trajectory'][i])
-        joint_cmd = np.minimum(joint_cmd*1.15,1.0)
+        if i == n_waypoints-1:
+            joint_cmd = np.minimum(joint_cmd*1.25,1.0)
+        else:
+            joint_cmd = joint_cmd 
         rospy.loginfo("Joint command %d = %f"%(i,joint_cmd))
         joint_positions = [joint_cmd]
         
@@ -226,15 +230,7 @@ class GraspExecuter(object):
         self._br = tf.TransformBroadcaster()
 
         self._scene.remove_world_object("table")
-        
-
-        p = geometry_msgs.msg.PoseStamped()
-        p.header.frame_id = self._planning_frame
-        p.pose.position.x = 0.55
-        p.pose.position.y = 0
-        p.pose.position.z = -0.33
-        p.pose.orientation.w = 1.0  
-        self._scene.add_box("table", p, (0.87, 1.77, 0.04))
+        self.add_table()
 
         self._solution = None
         self._grasp_waypoints = []
@@ -263,7 +259,7 @@ class GraspExecuter(object):
     def scan_object(self):
         
         command = "rosservice call /grasp_service/acquire_cloud"
-        self._boris.set_vel_accel_scaling("left_arm", 0.30, 0.30)
+        self._boris.set_vel_accel_scaling("left_arm", 0.40, 0.40)
         for waypoint in self._scan_waypoints:
 
             # goto
@@ -289,7 +285,7 @@ class GraspExecuter(object):
         p.header.frame_id = self._planning_frame
         p.pose.position.x = 0.55
         p.pose.position.y = 0
-        p.pose.position.z = -0.35#-0.34
+        p.pose.position.z = -0.37#-0.34
         p.pose.orientation.w = 1.0  
         self._scene.add_box("table", p, (0.87, 1.77, 0.04))
         rospy.sleep(2)
@@ -324,17 +320,30 @@ class GraspExecuter(object):
         self._grasp_waypoints = solution2carthesian_path(self._solution, self._tf_buffer)
 
         group = self._moveit_wrapper.get_group("left_hand_arm")
-        group.set_goal_joint_tolerance(0.01) # default 0.0001
-        group.set_goal_position_tolerance(0.025) # default 0.0001
-        group.set_goal_orientation_tolerance(0.01) # default 0.001
+        group.set_goal_joint_tolerance(0.001) # default 0.0001
+        group.set_goal_position_tolerance(0.01) # default 0.0001
+        group.set_goal_orientation_tolerance(0.001) # default 0.001
 
-        self._grasp_waypoints[0].position.z += 0.10
-        self._pre_grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[0])  
+        #self._grasp_waypoints[0].position.z += 0.15
+        dx = self._grasp_waypoints[1].position.x - self._grasp_waypoints[0].position.x 
+        dy = self._grasp_waypoints[1].position.y - self._grasp_waypoints[0].position.y 
+        dz = self._grasp_waypoints[1].position.z - self._grasp_waypoints[0].position.z
+        dir_vec = np.array([dx,dy,dz])
+        dist = np.linalg.norm(dir_vec)
+        dir_vec /= dist
+        dir_vec *= 0.0#0.05
+        target = geometry_msgs.msg.Pose()
+        target.position.x = self._grasp_waypoints[0].position.x - dir_vec[0]
+        target.position.y = self._grasp_waypoints[0].position.y - dir_vec[1]
+        target.position.z = self._grasp_waypoints[0].position.z + 0.15
+        target.orientation = self._grasp_waypoints[0].orientation
+
+        self._pre_grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm", target)  
 
 
         is_executable = len(self._pre_grasp_plan.joint_trajectory.points) > 0
         
-        # if is_executable:
+        # if is_executablediag_add:
         #     # current_angles = self._boris.angles("left_arm")
 
         #     # joint_positions = self._pre_grasp_plan.joint_trajectory.points[-1].positions
@@ -397,15 +406,17 @@ class GraspExecuter(object):
         self.remove_collision_object("guard")
         self.remove_collision_object("table")
         self._grasp_arm_joint_path, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3], 
-                                                                                         eef_step = 0.015, jump_threshold = 10.0)
+                                                                                         eef_step = 0.01, jump_threshold = 50.0)
         # Set back to current
         # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
-        is_executable = fraction >= 0.85
+        is_executable = fraction >= 0.95
 
         ## try to plan final goal in case cartesian path
         if not is_executable:
+            rospy.logwarn("Failed to plan cartesian path passing through all waypoints. Trying last one only.")
             self._grasp_arm_joint_path = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[2])  
             is_executable = len(self._grasp_arm_joint_path.joint_trajectory.points) > 0
+            
 
         if not is_executable:
 
@@ -519,8 +530,11 @@ class GraspExecuter(object):
 
         rospy.loginfo("Grasp Execution!!")
         key = None
-        time_steps = np.linspace(0.0,1.0,300)
-        time_steps_arm = np.linspace(0.0,1.0,150)
+
+        rospy.loginfo("Grasp path length %d"%(len(self._grasp_arm_joint_path.points),))
+        rospy.loginfo("Grasp path total time %f"%(self._grasp_arm_joint_path.points[-1].time_from_start.to_sec(),))
+        time_steps = np.linspace(0.0,1.0,200)
+        time_steps_arm = np.linspace(0.0,1.0,100)
         step = 0
         step_arm = 0
 
@@ -720,8 +734,7 @@ class GraspExecuter(object):
             loop_rate.sleep()
 
         
-        # goto with pre-grasp boris.goto_with_moveit("left_arm",traj_msg.points[0].positions)
-        
+
 
 
 def main():
@@ -730,95 +743,6 @@ def main():
 
    
     grasp_executer.run()
-    ########################################################
-    # arm = moveit_commander.MoveGroupCommander("left_hand_arm")
-
-    # print "Tolerances"
-    # print "Goal joint tol: ", arm.get_goal_joint_tolerance()
-    # print "Goal pos tol: ", arm.get_goal_position_tolerance()
-    # print "Goal ori tol: ", arm.get_goal_orientation_tolerance()
-
-    # arm.set_goal_joint_tolerance(0.1) # default 0.0001
-    # arm.set_goal_position_tolerance(0.1) # default 0.0001
-    # arm.set_goal_orientation_tolerance(0.1) # default 0.001
-    
-    # arm.set_max_velocity_scaling_factor(0.25)
-    # arm.set_max_acceleration_scaling_factor(0.25)
-
-    # arm_initial_pose = arm.get_current_pose().pose
-    # arm_initial_joints = arm.get_current_joint_values()
-
-    # gripper = moveit_commander.MoveGroupCommander("left_hand")
-    # gripper_joint_values = gripper.get_current_joint_values()
-    # print "Left hand: ", gripper_joint_values
-    # # ### Open
-
-    # open_cmd = raw_input("Open hand? (y/n)")
-    # if open_cmd == "y":
-    #     gripper_joint_values[0] = 0.0
-    #     gripper.set_joint_value_target(gripper_joint_values)
-    #     gripper.go(wait=True)
-        
-    # ### tf2
-    # tf_buffer = tf2_ros.Buffer()
-    # listener = tf2_ros.TransformListener(tf_buffer)
-    # br = tf.TransformBroadcaster()
-
-    # ### get target tf
-
-    
-    # waypoints = solution2carthesian_path(solution, tf_buffer)    
-    # ee_transform = msg2Transform3(waypoints[0])
-    
-    
-
-    # # print tmp.q.to_euler()
-    # # Go to pre-grasp pose
-    # target_pose = transform2PoseMsg(ee_transform)
-    # arm.set_pose_target(target_pose,end_effector_link="left_hand_palm_link")
-    # arm.go(wait=True)
-    # rospy.sleep(2)
-    # arm.clear_pose_targets()
-    # arm.stop()
-
-    # scene.remove_world_object("guard")
-    # scene.remove_world_object("table")
-
-    # # Finish grasping
-    # arm.set_max_velocity_scaling_factor(0.1)
-    # arm.set_max_acceleration_scaling_factor(0.1)
-    # success = move_cartesian_path(waypoints[:3], arm)
-    # if not success:
-    #     arm.set_pose_target(waypoints[2],end_effector_link="left_hand_palm_link")
-    #     arm.go(wait=False)
-    #     rospy.sleep(1)
-    #     # arm.clear_pose_targets()
-    #     # arm.stop()
-
-    # # Close hand
-    # gripper_joint_values[0] = 0.78
-    # gripper.set_joint_value_target(gripper_joint_values)
-    # gripper.go(wait=True)
-    # rospy.sleep(2)
-
-    # # Move up
-    # move_cartesian_path(waypoints[3:], arm)
-    
-
-
-    # rate = rospy.Rate(30)
-    # while not rospy.is_shutdown():
-    #     br.sendTransform(ee_transform.p,
-    #                     ee_transform.q,
-    #                     rospy.Time.now(),
-    #                     "grasp_goal",
-    #                     "world")
-
-    #     rate.sleep()
-
-
-
-
 
 
 if __name__ == '__main__':

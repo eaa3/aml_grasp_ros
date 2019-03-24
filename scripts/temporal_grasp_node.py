@@ -412,7 +412,7 @@ class GraspAppService(GraspApp):
                 print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
     def acquire_cloud(self, vis):
-        crop_min_pt=[0.2, 0.3, -0.3]#[0.2, 0.3, -0.5]#[0.2, 0.3, -0.3] # table surface: z=-0.05
+        crop_min_pt=[0.2, 0.3, -0.32]#[0.2, 0.3, -0.5]#[0.2, 0.3, -0.3] # table surface: z=-0.05
         crop_max_pt=[0.95, 0.9, 0.25]
 
         point_cloud, cloud_frame = self.pcl_service.get_processed_cloud(crop_min_pt=crop_min_pt, crop_max_pt=crop_max_pt)#(crop_min_pt=[-1,-1,-1], crop_max_pt=[1,1,1])#PointCloud(o3d.read_point_cloud("../aml_data/jug.pcd"))
