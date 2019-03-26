@@ -121,6 +121,53 @@ bool processRequest_(temporal_grasp_ros::PCLUtility::Request  &req,
         return true;
 
     }
+    else if (req.function_call_id == "compute_principal_curvatures")
+    {
+        types::FeatureCloud::Ptr feature_cloud (new types::FeatureCloud);
+        types::PointNormalCloud::Ptr point_normal_cloud (new types::PointNormalCloud);
+
+        types::PointNormalCloud::Ptr cloud(new types::PointNormalCloud());
+    
+
+        pcl::PCLPointCloud2 cloud_tmp;
+        pcl_conversions::toPCL(req.cloud_input, cloud_tmp);
+        pcl::fromPCLPointCloud2(cloud_tmp,*cloud);
+
+        // bool compute_curvatures(const types::PointCloud::Ptr& cloud, 
+        //                          const types::PointNormalCloud::Ptr& cloud_normals, 
+        //                          types::FeatureCloud::Ptr& features_out,
+        //                          float sradius_curvatures){
+        utils::compute_curvatures(cloud, feature_cloud, 0.01);
+        std::cout << "Received cloud with " << cloud->points.size() << " points." << std::endl;
+
+        // for( auto e : cloud->points){
+        //     printf("Color %d\n", e.rgb);
+        // }
+
+        // Compute features
+        //utils::compute_features(cloud_cropped, point_normal_cloud, feature_cloud, req.view_point[0], req.view_point[1], req.view_point[2], 0.01, 0.01);
+        //utils::compute_features(cloud_cropped, point_normal_cloud, feature_cloud, transform.getOrigin().x(), transform.getOrigin().y(), transform.getOrigin().z(), 0.01, 0.01);
+
+        // for( auto e : point_normal_cloud->points){
+        //     printf("Color %d\n", e.rgb);
+        // }
+
+        pcl::PCLPointCloud2 cloud2, features2, cloud_out;
+
+        pcl::toPCLPointCloud2(*cloud, cloud2);
+        pcl::toPCLPointCloud2(*feature_cloud, features2);
+
+        pcl::concatenateFields (cloud2, features2, cloud_out);
+
+        pcl_conversions::fromPCL(cloud_out, res.cloud_output);
+        std::cout << "Output cloud with " << feature_cloud->points.size() << " points." << std::endl;
+
+        
+        res.info = "Successfully computed features!";
+        res.success = true;
+        return true;
+
+    }
 
 
 

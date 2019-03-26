@@ -56,6 +56,10 @@ namespace aml_grasp
                             types::FeatureCloud::Ptr& features_out, float vx = 0.5, float vy = 0.5, float vz = 0.8,
                             float sradius_normal = 0.03, float sradius_curvatures = 0.1);
 
+        bool compute_curvatures(const types::PointNormalCloud::Ptr& cloud, 
+                                types::FeatureCloud::Ptr& features_out,
+                                 float sradius_curvatures);
+
 
 
 

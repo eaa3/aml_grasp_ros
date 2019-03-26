@@ -6,7 +6,7 @@ from std_msgs.msg import String
 import geometry_msgs.msg
 # import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
-
+from std_msgs.msg import Header
 import sys, threading
 import numpy as np
 
@@ -120,8 +120,18 @@ def create_cloud(header, fields, points):
 
     point_step, pack_into = cloud_struct.size, cloud_struct.pack_into
     offset = 0
+    i = 0
+    while i < len(fields):
+        if fields[i].name=="rgb":
+            break
+
+        i += 1
+
+    print "color index : ", i
     for p in points:
-        pack_into(buff, offset, *p)
+        values = [v for v in p]
+        values[i] = int(values[i])
+        pack_into(buff, offset, *values)
         offset += point_step
 
     return PointCloud2(header=header,
@@ -148,6 +158,36 @@ def create_cloud_xyz32(header, points):
     fields = [PointField('x', 0, PointField.FLOAT32, 1),
               PointField('y', 4, PointField.FLOAT32, 1),
               PointField('z', 8, PointField.FLOAT32, 1)]
+    return create_cloud(header, fields, points)
+
+def create_cloud_point_color_normal(header, points):
+    """
+    Create a L{sensor_msgs.msg.PointCloud2} message with 3 float32 fields (x, y, z).
+
+    @param header: The point cloud header.
+    @type  header: L{std_msgs.msg.Header}
+    @param points: The point cloud points.
+    @type  points: iterable
+    @return: The point cloud.
+    @rtype:  L{sensor_msgs.msg.PointCloud2}
+    """
+
+    #['x', 'y', 'z', 'normal_x', 'normal_y', 'normal_z', 'rgb', 'curvature', 'principal_curvature_x', 'principal_curvature_y', 'principal_curvature_z', 'pc1', 'pc2']
+    fields = [PointField('x', 0, PointField.FLOAT32, 1),
+              PointField('y', 4, PointField.FLOAT32, 1),
+              PointField('z', 8, PointField.FLOAT32, 1),
+              PointField('normal_x', 12, PointField.FLOAT32, 1),
+              PointField('normal_y', 16, PointField.FLOAT32, 1),
+              PointField('normal_z', 20, PointField.FLOAT32, 1),
+              PointField('curvature', 24, PointField.FLOAT32, 1),
+              PointField('rgb', 28, PointField.UINT32, 1),
+            #   PointField('curvature', 28, PointField.FLOAT32, 1),
+            #   PointField('principal_curvature_x', 32, PointField.FLOAT32, 1),
+            #   PointField('principal_curvature_y', 36, PointField.FLOAT32, 1),
+            #   PointField('principal_curvature_z', 40, PointField.FLOAT32, 1),
+            #   PointField('pc1', 42, PointField.FLOAT32, 1),
+            #   PointField('pc2', 46, PointField.FLOAT32, 1)
+              ]
     return create_cloud(header, fields, points)
 
 def _get_struct_fmt(is_bigendian, fields, field_names=None):
@@ -238,6 +278,7 @@ class PCLService(object):
 
     def msg2array(self, msg):
 
+        
         all_fields = [field.name for field in msg.fields]
         point_data_generator = read_points(msg, field_names=all_fields, skip_nans=False)
 
@@ -255,23 +296,62 @@ class PCLService(object):
             colors[i] = p_dict['rgb']
             points[i,:] = p_row
 
-            # print "Color: ", int(p_dict['rgb'])
             i += 1
-            # if points is None:
-            #     points = p_row
-            # else:
-            #     points = np.vstack([points,p_row])
-
-
-            # for p in list(point_data):
-
-            #     for f, v in zip(all_fields,p):
-            #         sys.stdout.write('%s: %f '%(f,v))
-            #     sys.stdout.write('\n')
-            #     sys.stdout.flush()
-
 
         return points
+
+    def point_cloud2msg(self, o3d_cloud):
+        
+        empty_header = Header()
+
+        print empty_header
+        points = np.asarray(o3d_cloud.points)
+        normals = np.asarray(o3d_cloud.normals)
+        colors = np.asarray(o3d_cloud.colors)
+        curvatures = np.asarray(o3d_cloud.curvatures).reshape(-1,1)
+        principal_curvatures = np.asarray(o3d_cloud.principal_curvatures)
+
+        size = len(colors)
+
+        def RGBTo32bitInt(r, g, b):
+            return np.uint32(int('%02x%02x%02x' % (r, g, b), 16))
+
+        uint32_colors = np.zeros((size,1),dtype=np.uint32)
+
+        for i in range(size):
+            r = colors[i,0]*255.0
+            g = colors[i,1]*255.0
+            b = colors[i,2]*255.0
+
+            uint32_colors[i] = RGBTo32bitInt(r,g,b)
+
+        # print uint32_colors
+        data = np.hstack([points, normals, curvatures, uint32_colors])
+        
+
+        print data.shape
+
+        # print data[:10,:]
+
+        msg = create_cloud_point_color_normal(empty_header, data)
+
+        return msg
+
+    def recompute_curvatures(self, o3d_cloud):
+
+        msg = self.point_cloud2msg(o3d_cloud)
+
+        result = self.compute_curvatures(msg)
+
+        point_cloud = None
+        cloud_frame = Transform3()
+        colors = np.asarray(o3d_cloud.colors)
+        if result is not None:
+            point_cloud, cloud_frame = self.msg2point_cloud_nocolor(result, colors)
+
+        return point_cloud._cloud
+
+        
 
     def msg2point_cloud(self, msg):
 
@@ -305,6 +385,42 @@ class PCLService(object):
                 colors[i] = toRGBReal(color)
                 # print toRGBReal(color)
             pcd.colors = colors
+            # pcd.colors = points[:,6] convert uint32 to rgb
+            pcd.curvatures = data[:,7]
+            pcd.principal_curvatures = data[:,8:]
+
+            point_cloud = PointCloud(pcd)
+
+            cloud_frame = self.compute_cloud_frame(data)
+
+
+            return point_cloud, cloud_frame
+        else:
+            return None, Transform3()
+
+
+    def msg2point_cloud_nocolor(self, msg, color_to_copy = None):
+
+        data = self.msg2array(msg)
+
+        # print data
+        # print "Points shape", data.shape
+        
+        if data.shape[0] > 0:
+            # print "Sample row: ", data[0,:]
+
+
+            pcd = o3d.PointCloud()
+            pcd.points = data[:,:3]
+            # normals = np.zeros((points.shape[0],3))
+            # normals[:,:2] = points[:,11:] # using curvatures just for visualisation
+            pcd.normals = data[:,3:6] # curvatures: points[:,8:11]
+            
+            colors = np.zeros((data.shape[0],3))
+            if color_to_copy is not None:
+                pcd.colors = color_to_copy[:data.shape[0],:]
+            else:
+                pcd.colors = colors
             # pcd.colors = points[:,6] convert uint32 to rgb
             pcd.curvatures = data[:,7]
             pcd.principal_curvatures = data[:,8:]
@@ -360,6 +476,7 @@ class PCLService(object):
 
     def compute_features(self, cloud2_msg, view_point, crop_min_pt, crop_max_pt):
 
+
         cloud_output = None
 
         try:
@@ -368,6 +485,31 @@ class PCLService(object):
             # request.function_call_id = "compute_features"
             # request.cloud_input = cloud2_msg
             response = self.compute_features_srv("compute_features",cloud2_msg, view_point, crop_min_pt, crop_max_pt)
+
+            if response.success:
+                cloud_output = response.cloud_output
+
+                # print "Eigen values: ", response.eigen_values
+                # print "Eigen Vec0: ", response.eigen1
+                # print "Eigen Vec1: ", response.eigen2
+                # print "Eigen Vec2: ", response.eigen3
+        except rospy.ServiceException, e:
+
+            print "Service call to compute_features_srv failed: %s"%e
+
+        return cloud_output
+
+    def call_service(self, function_call_id, cloud2_msg, view_point, crop_min_pt, crop_max_pt):
+
+
+        cloud_output = None
+
+        try:
+
+            # request = PCLUtilityRequest()
+            # request.function_call_id = "compute_features"
+            # request.cloud_input = cloud2_msg
+            response = self.compute_features_srv(function_call_id,cloud2_msg, view_point, crop_min_pt, crop_max_pt)
 
             if response.success:
                 cloud_output = response.cloud_output
@@ -395,6 +537,25 @@ class PCLService(object):
 
             print "Calling service"
             feature_cloud = self.compute_features(self._current_cloud, view_point, crop_min_pt, crop_max_pt)
+
+        
+        self._cloud_lock.release()
+
+        return feature_cloud
+
+    def compute_curvatures(self, msg, view_point=[1.35, -0.9, 0.32], crop_min_pt=[0.2, -0.40, -0.01], crop_max_pt=[0.6, 0.0, 0.2]):
+
+        feature_cloud = None
+
+        # Lock mutex
+        self._cloud_lock.acquire()
+
+        if self._current_cloud is None:
+            print "Cloud is None"
+        else:
+
+            print "Calling service"
+            feature_cloud = self.call_service("compute_principal_curvatures", msg, view_point, crop_min_pt, crop_max_pt)
 
         
         self._cloud_lock.release()

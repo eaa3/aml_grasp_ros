@@ -162,6 +162,38 @@ namespace aml_grasp
 
                 return true;
             }
+
+            bool compute_curvatures(const types::PointNormalCloud::Ptr& cloud, 
+                                types::FeatureCloud::Ptr& features_out,
+                                 float sradius_curvatures){
+
+                pcl::search::KdTree<types::PointNormalType>::Ptr tree (new pcl::search::KdTree<types::PointNormalType>);
+
+
+                // Setup the principal curvatures computation
+                pcl::PrincipalCurvaturesEstimation<types::PointNormalType, types::PointNormalType, types::FeatureType> principalCurvaturesEstimation;
+
+                // Provide the original point cloud (without normals)
+                principalCurvaturesEstimation.setInputCloud (cloud);
+
+                // Provide the point cloud with normals
+                principalCurvaturesEstimation.setInputNormals(cloud);
+
+                // Use the same KdTree from the normal estimation
+                principalCurvaturesEstimation.setSearchMethod (tree);
+                principalCurvaturesEstimation.setRadiusSearch(sradius_curvatures);
+
+                // Actually compute the principal curvatures
+
+                std::cout << " Computing curvatures..." << std::endl;
+                principalCurvaturesEstimation.compute (*features_out);
+
+                std::cout << "output points.size (): " << features_out->points.size () << std::endl;
+
+       
+
+                return true;
+            }
     }
 
 

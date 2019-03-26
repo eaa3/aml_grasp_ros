@@ -21,7 +21,7 @@ import argparse
 
 import tf
 
-SAVE_DATA = False
+SAVE_DATA = True
 
 ### TODO: maybe this should be moved to somewhere else
 from visualization_msgs.msg import Marker
@@ -70,6 +70,8 @@ class GraspAppService(GraspApp):
         args = parser.parse_args(rospy.myargv()[1:])
 
         self.robo_vis.add_key_callback(ord('A'), self.acquire_cloud)
+        
+        self.robo_vis.add_key_callback(ord('F'), self.recompute_features)
 
         if args.sim:
             self.pcl_service = PCLService(point_cloud_topic="/left_camera/sim/depth_registered/points")
@@ -343,10 +345,19 @@ class GraspAppService(GraspApp):
         resp.cloud_centroid = self.point_cloud.compute_centroid()
 
         if SAVE_DATA:
+            import open3d as o3d
+            self.cloud_name = raw_input("Object name: ")
+            models_path = get_aml_package_path('aml_data')
+            filepath = models_path + '/exp_data/' + self.cloud_name + '.pcd'
+            o3d.write_point_cloud(filepath, self.point_cloud._cloud, True)
+            print "Cloud data saved to: ", filepath
+
             models_path = get_aml_package_path('aml_data')
             filepath = models_path + '/exp_data/' + self.cloud_name + "_grasps.pkl"
             save_data({'solution': solution, 'sidx': self.sidx, 'solution_list': self.grasp_generator.get_solutions()}, filepath)
             print "Solution data saved to: ", filepath
+            
+            
 
         pos = resp.base_pose[0:3]
         quat = resp.base_pose[3:7]
@@ -435,20 +446,18 @@ class GraspAppService(GraspApp):
             # vis.add_geometry(self.point_cloud._cloud)
             # self.pcl_service.pause_sub()
 
-            if SAVE_DATA:
-                import open3d as o3d
-                self.cloud_name = raw_input("Object name: ")
-                models_path = get_aml_package_path('aml_data')
-                filepath = models_path + '/exp_data/' + self.cloud_name + '.pcd'
-                o3d.write_point_cloud(filepath, point_cloud._cloud, True)
-                print "Cloud data saved to: ", filepath
-
         else:
 
             print "Cloud is empty!"
 
         self.restart_grasp_service()
 
+    def recompute_features(self, vis):
+
+        
+        o3d_point_cloud = self.pcl_service.recompute_curvatures(self.point_cloud._cloud)
+
+        self.set_cloud(o3d_point_cloud, integrate_cloud=False)
 
     def publish_solutions(self):
 
