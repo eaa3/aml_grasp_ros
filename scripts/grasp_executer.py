@@ -619,6 +619,10 @@ class GraspExecuter(object):
                 play_forward = False
                 play_backward = False
                 rospy.loginfo("Halt open loop playing")
+            elif key == 'c':
+                self._boris.goto_joint_angles('left_hand',[1.0], 0.01)
+            elif key == 'o':
+                self._boris.goto_joint_angles('left_hand',[0.0], 0.01)
 
             if play_forward:
                 step = self.update_step(step, time_steps,1)
