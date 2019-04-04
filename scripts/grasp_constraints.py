@@ -2,7 +2,7 @@ import numpy as np
 from aml_math import *
 import robot_kinematics as jk
 
-kin = jk.robot_kinematics()
+# kin = jk.robot_kinematics()
 
 def axis_alignment_constraint(manipulator, solution, **kwargs):
 
