@@ -1,16 +1,17 @@
 #!/usr/bin/env python
 # license removed for brevity
 
-import threading, signal
+import threading, signal, time
 import rospy
 import numpy as np
 
-from aml_demos import GraspApp
+from aml_demos import SimpleGraspApp
 from aml_math import *
 
 from pcl_service_client import PCLService
 from temporal_grasp_ros.srv import *
 from temporal_grasp_ros.msg import *
+from std_msgs.msg import Int32, String
 from aml_grasp.grasp_config_test import grasp_config
 from grasp_constraints import *
 import functools as ft
@@ -20,6 +21,7 @@ import PyQt4.QtGui as qtg
 import argparse
 
 import tf
+import warnings
 
 SAVE_DATA = True
 
@@ -55,7 +57,7 @@ def publish_crop_cube_maker(crop_min_pt, crop_max_pt):
         pub.publish(msg)
         rospy.sleep(0.1) # 10Hz
 
-class GraspAppService(GraspApp):
+class GraspAppService(SimpleGraspApp):
 
 
     def __init__(self):
@@ -69,7 +71,7 @@ class GraspAppService(GraspApp):
         parser.set_defaults(sim=False)
         args = parser.parse_args(rospy.myargv()[1:])
 
-        self.robo_vis.add_key_callback(ord('A'), self.acquire_cloud)
+        self.robo_vis.add_key_callback(ord('A'), self.generate_grasps)
         
         self.robo_vis.add_key_callback(ord('F'), self.recompute_features)
 
@@ -107,8 +109,24 @@ class GraspAppService(GraspApp):
 
         self._solution_avail_cb = self.publish_solutions
 
-       
-        self._solution_publisher = rospy.Publisher("/grasp/solutions", GraspSolutionSet, queue_size=1)
+        self._object_path_list = ['/home/earruda/Projects/pybullet_cloud/models/object_models/cube_small.urdf',
+                                '/home/earruda/Projects/pybullet_cloud/models/object_models/cylinder.urdf',
+                                 ]
+
+        random_objects = crawl('%s/object_models/random_urdfs'%(self.models_path,),'urdf')
+        self._object_path_list = self._object_path_list + [ path for _, path in random_objects.items()]
+        self._obj_idx = 0
+        
+
+        queue_size = None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self._solution_publisher = rospy.Publisher("/grasp/solutions", GraspSolutionSet, queue_size=queue_size)
+
+            self._cam_selection_publisher = rospy.Publisher("/sim/next_camera", Int32, queue_size=queue_size)
+            self._obj_selection_publisher = rospy.Publisher("/sim/next_object", String, queue_size=queue_size)
+            # Set first object
+
         self.br = tf.TransformBroadcaster()
 
 
@@ -122,24 +140,19 @@ class GraspAppService(GraspApp):
             self.learn_contact_model_srv = rospy.Service('grasp_service/learn_contact_model', GraspServiceCall, self.learn_contact_model_call)
             self.learn_contact_query_srv = rospy.Service('grasp_service/learn_contact_query', GraspServiceCall, self.learn_contact_query_call)
             self.acquire_cloud_srv = rospy.Service('grasp_service/acquire_cloud', GraspServiceCall, self.acquire_cloud_call)
-            self.generate_grasps_srv = rospy.Service('grasp_service/generate_grasps', GraspServiceCall, self.generate_grasps_call)
             self.next_solution_srv = rospy.Service('grasp_service/next_solution', GraspServiceCall, self.next_solution_call)
             self.prev_solution_srv = rospy.Service('grasp_service/prev_solution', GraspServiceCall, self.prev_solution_call)
 
             self.clear_solutions_srv = rospy.Service('grasp_service/clear_solutions', GraspServiceCall, self.clear_solutions_call)
-
-            self.start_cloud_timer_srv = rospy.Service('grasp_service/toggle_cloud_update', GraspServiceCall, self.toggle_cloud_update_call)
 
 
             self.service_list = [self.grasp_service,
                                  self.learn_contact_model_srv,
                                  self.learn_contact_query_srv,
                                  self.acquire_cloud_srv,
-                                 self.generate_grasps_srv,
                                  self.next_solution_srv,
                                  self.prev_solution_srv,
                                  self.clear_solutions_srv,
-                                 self.start_cloud_timer_srv,
                                  self.cloud_centroid_srv]
 
 
@@ -170,13 +183,13 @@ class GraspAppService(GraspApp):
 
     def learn_contact_model(self, req):
 
-        GraspApp.learn_contact_model(self, None)
+        SimpleGraspApp.learn_contact_model(self, None)
 
         self.restart_grasp_service()
 
     def learn_contact_query(self, req):
 
-        GraspApp.learn_contact_query(self, None)
+        SimpleGraspApp.learn_contact_query(self, None)
 
         self.restart_grasp_service()
 
@@ -208,6 +221,42 @@ class GraspAppService(GraspApp):
 
         return resp
 
+    def generate_grasps(self, vis):
+        # Restarting scene cloud and clearing solutions
+        urdf_path = self._object_path_list[self._obj_idx]
+        self._obj_selection_publisher.publish(urdf_path)
+        self.object.load_object(urdf_path)
+        self.object.set_pos_ori(self.object_position,self.object_orientation)
+
+        rospy.sleep(1.0)
+
+        self.got_first_cloud = False
+        self.grasp_generator._optimiser.solutions = []
+        self.grasp_generator._solution_buffer = []
+        
+        t0 = time.time()
+
+        for i in range(4):
+            self._cam_selection_publisher.publish(i)
+            rospy.sleep(2.0)
+            self.acquire_cloud(vis)
+
+        t0_grasp = time.time()
+        self.recompute_features(vis)
+
+        self.learn_contact_query(vis)
+
+        self.sample_solutions(vis)
+        # self.save_solutions(vis, path = path)
+
+        now = time.time()
+        rospy.loginfo("Total generation time: %f"%(now-t0,))
+        rospy.loginfo("Grasp generation time: %f"%(now-t0_grasp,))
+
+        self._obj_idx = (self._obj_idx+1)%len(self._object_path_list)
+        # self._obj_selection_publisher.publish(self._object_path_list[self._obj_idx])
+        
+        return False
 
     def acquire_cloud_call(self, req):
 
@@ -219,53 +268,6 @@ class GraspAppService(GraspApp):
 
         return resp
 
-
-
-    def toggle_cloud_update_call(self, req):
-
-        resp = GraspServiceCallResponse()
-
-        if self._cloud_update is None:
-            self._cloud_update = rospy.Timer(rospy.Duration(1), self.periodic_cloud_update)
-            print "Cloud update started"
-        else:
-            self._cloud_update.shutdown()
-            self._cloud_update = None
-            print "Cloud update shudown"
-
-        resp.success = True
-
-        return resp
-
-    def generate_grasps_call(self, req):
-
-        resp = GraspServiceCallResponse()
-
-        # def func():
-        #     self.generate_grasps(self.robo_vis._vis)
-
-        # threaded_call = threading.Thread(target=func)
-        # threaded_call.start()
-
-        # self.robo_vis.update_entities = False
-
-        # def func():
-        #     self.grasp_generator.generate(self.point_cloud, None)
-        #     self.robo_vis.update_entities = True
-        #     print "Finished Grasp Generation!"
-
-        # threaded_call = threading.Thread(target=func)
-        # threaded_call.start()
-
-
-
-        self.grasp_generator.generate(self.point_cloud, None)
-
-        resp.success = True
-
-        self.restart_grasp_service()
-
-        return resp
 
     def next_solution_call(self, req):
 
@@ -377,50 +379,6 @@ class GraspAppService(GraspApp):
 
         return resp
 
-
-
-
-    def generate_grasps(self, vis):
-
-        def update_vis():
-            vis.update_geometry()
-            vis.poll_events()
-            vis.update_renderer()
-
-
-        # self.grasp_generator._constraints_cbs = []
-
-
-        self.grasp_generator.generate(self.point_cloud, update_vis)
-
-
-        self.restart_grasp_service()
-
-        return False
-
-    def periodic_cloud_update(self, event):
-
-        crop_min_pt=[0.2, 0.3, -0.3] # table surface: z=-0.05
-        crop_max_pt=[0.95, 0.9, 0.25]
-        # x=0.45, y=0.6, z=0.725
-        point_cloud, cloud_frame = self.pcl_service.get_processed_cloud(crop_min_pt=crop_min_pt, crop_max_pt=crop_max_pt)#(crop_min_pt=[-1,-1,-1], crop_max_pt=[1,1,1])#PointCloud(o3d.read_point_cloud("../aml_data/jug.pcd"))
-
-        publish_crop_cube_maker(crop_min_pt, crop_max_pt)
-
-
-
-
-        if point_cloud:
-            point_cloud.downsample(0.005)
-            diff = np.abs(point_cloud.n_points() - self.point_cloud.n_points())
-            has_changed = diff > 200
-            if has_changed:
-                print "Cloud has changed! Diff is: ", diff
-                self.cloud_frame = cloud_frame
-
-                self.set_cloud(point_cloud._cloud, integrate_cloud=False)
-
-                print self.point_cloud._cloud.has_normals(), self.point_cloud._cloud.has_curvatures(), self.point_cloud._cloud.has_principal_curvatures()
 
     def acquire_cloud(self, vis):
         crop_min_pt=[0.2, 0.3, -0.32]#[0.2, 0.3, -0.5]#[0.2, 0.3, -0.3] # table surface: z=-0.05
