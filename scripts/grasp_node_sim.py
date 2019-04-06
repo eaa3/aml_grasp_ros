@@ -124,7 +124,7 @@ class GraspAppService(SimpleGraspApp):
 
         self.random_objects = crawl('%s/object_models/random_urdfs'%(self.models_path,),'urdf')
         self._object_path_list = self._object_path_list + [ path for _, path in self.random_objects.items()]
-        self._obj_idx = 1
+        self._obj_idx = 41
         self.random_objects["cylinder.urdf"] = self._object_path_list[0]
         self.random_objects["cube_small.urdf"] = self._object_path_list[1]
 
@@ -140,7 +140,7 @@ class GraspAppService(SimpleGraspApp):
             self._cam_selection_publisher = rospy.Publisher("/sim/next_camera", Int32, queue_size=queue_size)
             self._obj_selection_publisher = rospy.Publisher("/sim/next_object", String, queue_size=queue_size)
             # Set first object
-
+        
         urdf_path = self._object_path_list[self._obj_idx]
         self._obj_selection_publisher.publish(urdf_path)
         self.object.load_object(urdf_path)
@@ -152,6 +152,10 @@ class GraspAppService(SimpleGraspApp):
         self._grasp_trial_summary = {}
 
     def load_prev_summary(self, vis):
+        self.gsidx -= 1
+        self.gsidx = self.gsidx if self.gsidx >= 0 else 0
+        size = len(self.grasp_summaries.items())
+
         filename, path = self.grasp_summaries.items()[self.gsidx]
         self._grasp_trial_summary = pickle.load( open( path, "rb" ) )
 
@@ -176,13 +180,16 @@ class GraspAppService(SimpleGraspApp):
             if k != "solution_list":
                 print k, ": ", v
 
-        self.gsidx -= 1
-
-        size = len(self.grasp_summaries.items())
-        self.gsidx = self.gsidx if self.gsidx >= 0 else 0
+        
         print "Gsidx: ", self.gsidx, "/", size
 
     def load_next_summary(self, vis):
+
+        self.gsidx += 1
+        size = len(self.grasp_summaries.items())
+        self.gsidx = self.gsidx if self.gsidx < size else (size-1)
+        
+
         filename, path = self.grasp_summaries.items()[self.gsidx]
         self._grasp_trial_summary = pickle.load( open( path, "rb" ) )
 
@@ -207,12 +214,9 @@ class GraspAppService(SimpleGraspApp):
             if k != "solution_list":
                 print k, ": ", v
 
-        self.gsidx += 1
-        
-        size = len(self.grasp_summaries.items())
-        self.gsidx = self.gsidx if self.gsidx < size else (size-1)
 
         print "Gsidx: ", self.gsidx, "/", size
+        
 
     def load_cloud(self, cloud_path):
 
@@ -329,7 +333,7 @@ class GraspAppService(SimpleGraspApp):
         self.object.load_object(urdf_path)
         self.object.set_pos_ori(self.object_position,self.object_orientation)
 
-        rospy.sleep(1.0)
+        rospy.sleep(2.0)
 
         self.got_first_cloud = False
         self.grasp_generator._optimiser.solutions = []
@@ -339,7 +343,7 @@ class GraspAppService(SimpleGraspApp):
         if not skip_scan:
             for i in range(4):
                 self._cam_selection_publisher.publish(i)
-                rospy.sleep(2.0)
+                rospy.sleep(2.2)
                 self.acquire_cloud(vis)
 
             self.recompute_features(vis)
@@ -408,7 +412,7 @@ class GraspAppService(SimpleGraspApp):
 
     def run_evaluation(self, vis):
         
-        n_objects = 5
+        n_objects = 52
         trials_per_object = 1
         n_best_to_try = 10
         summary_path = self.models_path + '/sim_exp_data/'
@@ -424,7 +428,7 @@ class GraspAppService(SimpleGraspApp):
                     result = int(self.try_grasp2(solution_exec))
                     self._grasp_trial_summary["success_map"][solution_exec] = result
 
-                    if success == 0 and result == 1:
+                    if solution_exec == 0 and result == 1:
                         success = 1
                 
                 self._grasp_trial_summary["success_count"] += success
