@@ -26,7 +26,7 @@ import cPickle as pickle
 import open3d as o3d
 from aml_core import PointCloud
 from aml_robot import SceneObject
-from pympler.tracker import SummaryTracker
+# from pympler.tracker import SummaryTracker
 
 
 SAVE_DATA = True
@@ -90,9 +90,9 @@ class GraspAppService(SimpleGraspApp):
 
         # with warnings.catch_warnings():
         #     warnings.simplefilter("ignore")
-        self.tracker = SummaryTracker()
+        # self.tracker = SummaryTracker()
             
-        self.robo_vis.add_key_callback(ord('L'), self.show_summary)
+        # self.robo_vis.add_key_callback(ord('L'), self.show_summary)
 
         if args.sim:
             self.pcl_service = PCLService(point_cloud_topic="/left_camera/sim/depth_registered/points")
@@ -341,7 +341,7 @@ class GraspAppService(SimpleGraspApp):
 
         return resp
 
-    def generate_grasps(self, vis, skip_scan = False):
+    def generate_grasps(self, vis, trial_num = 0, skip_scan = False):
 
         # Clear grasp summary
         self._grasp_trial_summary = {}
@@ -362,7 +362,7 @@ class GraspAppService(SimpleGraspApp):
         if not skip_scan:
             for i in range(4):
                 self._cam_selection_publisher.publish(i)
-                rospy.sleep(3.0)
+                rospy.sleep(3.5)
                 self.acquire_cloud(vis)
 
             self.recompute_features(vis)
@@ -403,7 +403,7 @@ class GraspAppService(SimpleGraspApp):
         self._grasp_trial_summary["opt_time"] = opt_time
         self._grasp_trial_summary["grasp_generation_time"] = grasp_generation_time
         
-        cloud_filename = self._grasp_trial_summary["object_name"] + "_model"
+        cloud_filename = self._grasp_trial_summary["object_name"] + "_%.4d_model"%(trial_num,)
 
         cloud_path = self.save_current_cloud(cloud_filename)
         self._grasp_trial_summary["cloud_path"] = cloud_path
@@ -418,11 +418,10 @@ class GraspAppService(SimpleGraspApp):
         self._grasp_trial_summary["object_position"] = self.object_position
         self._grasp_trial_summary["object_orientation"] = self.object_orientation
 
-        self._obj_idx = (self._obj_idx+1)%len(self._object_path_list)
+        
         # self._obj_selection_publisher.publish(self._object_path_list[self._obj_idx])
         
-        
-
+        self._obj_idx = (self._obj_idx+1)%len(self._object_path_list)
         
         
         return False
@@ -443,14 +442,17 @@ class GraspAppService(SimpleGraspApp):
     def run_evaluation(self, vis):
         
         n_objects = 60
-        trials_per_object = 1
+        trials_per_object = 10
         n_best_to_try = 10
         summary_path = self.models_path + '/sim_exp_data/'
 
         for i in range(n_objects):
-
+            
             for trial in range(trials_per_object):
-                self.generate_grasps(vis, skip_scan=False)
+                self._obj_idx = i
+                self.generate_grasps(vis, trial_num=trial, skip_scan=False)
+                
+
                 self._grasp_trial_summary["trial_number"] = trial
 
                 success = 0
