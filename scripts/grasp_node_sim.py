@@ -366,57 +366,57 @@ class GraspAppService(SimpleGraspApp):
                 self.acquire_cloud(vis)
 
             self.recompute_features(vis)
-        # cloud_processing_time = time.time() - t0_cloud
+        cloud_processing_time = time.time() - t0_cloud
 
-        # t0_query = time.time()
-        # self.learn_contact_query(vis)
-        # query_time = time.time() - t0_query
+        t0_query = time.time()
+        self.learn_contact_query(vis)
+        query_time = time.time() - t0_query
 
-        # self.grasp_generator.stop_execution_simulation()
+        self.grasp_generator.stop_execution_simulation()
 
-        # t0_sample = time.time()
-        # self.sample_solutions(vis)
-        # sample_time = time.time() - t0_sample
+        t0_sample = time.time()
+        self.sample_solutions(vis)
+        sample_time = time.time() - t0_sample
 
         
 
-        # t0_opt = time.time()
-        # self.grasp_generator.generate(self.point_cloud, None)
-        # opt_time = time.time() - t0_opt
+        t0_opt = time.time()
+        self.grasp_generator.generate(self.point_cloud, None)
+        opt_time = time.time() - t0_opt
         
-        # # self.save_solutions(vis, path = path)
+        # self.save_solutions(vis, path = path)
 
-        # total_time = cloud_processing_time + query_time + sample_time + opt_time
-        # grasp_generation_time = query_time + sample_time + opt_time
+        total_time = cloud_processing_time + query_time + sample_time + opt_time
+        grasp_generation_time = query_time + sample_time + opt_time
   
-        # rospy.loginfo("Total generation time: %f"%(total_time,))
-        # rospy.loginfo("Grasp generation time: %f"%(grasp_generation_time,))
+        rospy.loginfo("Total generation time: %f"%(total_time,))
+        rospy.loginfo("Grasp generation time: %f"%(grasp_generation_time,))
 
-        # self._grasp_trial_summary["skip_scan"] = skip_scan
-        # self._grasp_trial_summary["object_idx"] = self._obj_idx
-        # self._grasp_trial_summary["object_name"] = urdf_path.split('/')[-1].split('.')[0]
-        # self._grasp_trial_summary["object_urdf_path"] = urdf_path
-        # self._grasp_trial_summary["cloud_processing_time"] = cloud_processing_time
-        # self._grasp_trial_summary["query_time"] = query_time
-        # self._grasp_trial_summary["sample_time"] = sample_time
-        # self._grasp_trial_summary["sample_time"] = sample_time
-        # self._grasp_trial_summary["opt_time"] = opt_time
-        # self._grasp_trial_summary["grasp_generation_time"] = grasp_generation_time
+        self._grasp_trial_summary["skip_scan"] = skip_scan
+        self._grasp_trial_summary["object_idx"] = self._obj_idx
+        self._grasp_trial_summary["object_name"] = urdf_path.split('/')[-1].split('.')[0]
+        self._grasp_trial_summary["object_urdf_path"] = urdf_path
+        self._grasp_trial_summary["cloud_processing_time"] = cloud_processing_time
+        self._grasp_trial_summary["query_time"] = query_time
+        self._grasp_trial_summary["sample_time"] = sample_time
+        self._grasp_trial_summary["sample_time"] = sample_time
+        self._grasp_trial_summary["opt_time"] = opt_time
+        self._grasp_trial_summary["grasp_generation_time"] = grasp_generation_time
         
-        # cloud_filename = self._grasp_trial_summary["object_name"] + "_model"
+        cloud_filename = self._grasp_trial_summary["object_name"] + "_model"
 
-        # cloud_path = self.save_current_cloud(cloud_filename)
-        # self._grasp_trial_summary["cloud_path"] = cloud_path
+        cloud_path = self.save_current_cloud(cloud_filename)
+        self._grasp_trial_summary["cloud_path"] = cloud_path
 
-        # self._grasp_trial_summary["solution_list"] = self.grasp_generator.get_solutions()
+        self._grasp_trial_summary["solution_list"] = self.grasp_generator.get_solutions()
         
-        # # -1 means not tried/unknown
-        # self._grasp_trial_summary["success_map"] = [-1]*self.grasp_generator.solution_count()
-        # self._grasp_trial_summary["success_count"] = 0
-        # self._grasp_trial_summary["trial_number"] = -1 #unset
+        # -1 means not tried/unknown
+        self._grasp_trial_summary["success_map"] = [-1]*self.grasp_generator.solution_count()
+        self._grasp_trial_summary["success_count"] = 0
+        self._grasp_trial_summary["trial_number"] = -1 #unset
 
-        # self._grasp_trial_summary["object_position"] = self.object_position
-        # self._grasp_trial_summary["object_orientation"] = self.object_orientation
+        self._grasp_trial_summary["object_position"] = self.object_position
+        self._grasp_trial_summary["object_orientation"] = self.object_orientation
 
         self._obj_idx = (self._obj_idx+1)%len(self._object_path_list)
         # self._obj_selection_publisher.publish(self._object_path_list[self._obj_idx])
@@ -453,18 +453,18 @@ class GraspAppService(SimpleGraspApp):
                 self.generate_grasps(vis, skip_scan=False)
                 self._grasp_trial_summary["trial_number"] = trial
 
-                # success = 0
-                # for solution_exec in range(n_best_to_try):
-                #     result = int(self.try_grasp2(solution_exec))
-                #     self._grasp_trial_summary["success_map"][solution_exec] = result
+                success = 0
+                for solution_exec in range(n_best_to_try):
+                    result = int(self.try_grasp2(solution_exec))
+                    self._grasp_trial_summary["success_map"][solution_exec] = result
 
-                #     if solution_exec == 0 and result == 1:
-                #         success = 1
+                    if solution_exec == 0 and result == 1:
+                        success = 1
                 
-                # self._grasp_trial_summary["success_count"] += success
+                self._grasp_trial_summary["success_count"] += success
 
-                # filename = "%.2f"%(time.time(),) + "_t%.4d_"%(trial) + self._grasp_trial_summary["object_name"] + ".pkl"
-                # pickle.dump( self._grasp_trial_summary, open( summary_path + filename, "wb" ) )
+                filename = "%.2f"%(time.time(),) + "_t%.4d_"%(trial) + self._grasp_trial_summary["object_name"] + ".pkl"
+                pickle.dump( self._grasp_trial_summary, open( summary_path + filename, "wb" ) )
 
 
 
