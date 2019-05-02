@@ -25,6 +25,9 @@ import warnings
 import cPickle as pickle
 import open3d as o3d
 from aml_core import PointCloud
+from aml_robot import SceneObject
+from pympler.tracker import SummaryTracker
+
 
 SAVE_DATA = True
 
@@ -83,6 +86,14 @@ class GraspAppService(SimpleGraspApp):
         self.robo_vis.add_key_callback(ord('V'), self.load_prev_summary)
         self.robo_vis.add_key_callback(ord('B'), self.load_next_summary)
 
+        
+
+        # with warnings.catch_warnings():
+        #     warnings.simplefilter("ignore")
+        self.tracker = SummaryTracker()
+            
+        self.robo_vis.add_key_callback(ord('L'), self.show_summary)
+
         if args.sim:
             self.pcl_service = PCLService(point_cloud_topic="/left_camera/sim/depth_registered/points")
         else:
@@ -124,7 +135,7 @@ class GraspAppService(SimpleGraspApp):
 
         self.random_objects = crawl('%s/object_models/random_urdfs'%(self.models_path,),'urdf')
         self._object_path_list = self._object_path_list + [ path for _, path in self.random_objects.items()]
-        self._obj_idx = 41
+        self._obj_idx = 0#7
         self.random_objects["cylinder.urdf"] = self._object_path_list[0]
         self.random_objects["cube_small.urdf"] = self._object_path_list[1]
 
@@ -146,10 +157,18 @@ class GraspAppService(SimpleGraspApp):
         self.object.load_object(urdf_path)
         self.object.set_pos_ori(self.object_position,self.object_orientation)
 
+        #for path in self._object_path_list[self._obj_idx:self._obj_idx+52]:
+            #obj = SceneObject(filename=path.split("/")[-1], phys_id = self.robot._phys_id, phys_opt='none', fixed_base=False, scale=1.0)
+            #obj.set_pos_ori(self.object_position,self.object_orientation)
+
         self.br = tf.TransformBroadcaster()
 
-
+        
         self._grasp_trial_summary = {}
+
+    def show_summary(self,vis):
+
+        self.tracker.print_diff()
 
     def load_prev_summary(self, vis):
         self.gsidx -= 1
@@ -333,7 +352,7 @@ class GraspAppService(SimpleGraspApp):
         self.object.load_object(urdf_path)
         self.object.set_pos_ori(self.object_position,self.object_orientation)
 
-        rospy.sleep(2.0)
+        rospy.sleep(2.5)
 
         self.got_first_cloud = False
         self.grasp_generator._optimiser.solutions = []
@@ -343,55 +362,66 @@ class GraspAppService(SimpleGraspApp):
         if not skip_scan:
             for i in range(4):
                 self._cam_selection_publisher.publish(i)
-                rospy.sleep(2.2)
+                rospy.sleep(3.0)
                 self.acquire_cloud(vis)
 
             self.recompute_features(vis)
-        cloud_processing_time = time.time() - t0_cloud
+        # cloud_processing_time = time.time() - t0_cloud
 
-        t0_query = time.time()
-        self.learn_contact_query(vis)
-        query_time = time.time() - t0_query
+        # t0_query = time.time()
+        # self.learn_contact_query(vis)
+        # query_time = time.time() - t0_query
 
-        t0_sample = time.time()
-        self.sample_solutions(vis)
-        sample_time = time.time() - t0_sample
-        # self.save_solutions(vis, path = path)
+        # self.grasp_generator.stop_execution_simulation()
 
-        total_time = cloud_processing_time + query_time + sample_time
-        grasp_generation_time = query_time + sample_time
+        # t0_sample = time.time()
+        # self.sample_solutions(vis)
+        # sample_time = time.time() - t0_sample
+
+        
+
+        # t0_opt = time.time()
+        # self.grasp_generator.generate(self.point_cloud, None)
+        # opt_time = time.time() - t0_opt
+        
+        # # self.save_solutions(vis, path = path)
+
+        # total_time = cloud_processing_time + query_time + sample_time + opt_time
+        # grasp_generation_time = query_time + sample_time + opt_time
   
-        rospy.loginfo("Total generation time: %f"%(total_time,))
-        rospy.loginfo("Grasp generation time: %f"%(grasp_generation_time,))
+        # rospy.loginfo("Total generation time: %f"%(total_time,))
+        # rospy.loginfo("Grasp generation time: %f"%(grasp_generation_time,))
 
-        self._grasp_trial_summary["skip_scan"] = skip_scan
-        self._grasp_trial_summary["object_idx"] = self._obj_idx
-        self._grasp_trial_summary["object_name"] = urdf_path.split('/')[-1].split('.')[0]
-        self._grasp_trial_summary["object_urdf_path"] = urdf_path
-        self._grasp_trial_summary["cloud_processing_time"] = cloud_processing_time
-        self._grasp_trial_summary["query_time"] = query_time
-        self._grasp_trial_summary["sample_time"] = sample_time
-        self._grasp_trial_summary["total_time"] = total_time
-        self._grasp_trial_summary["grasp_generation_time"] = grasp_generation_time
+        # self._grasp_trial_summary["skip_scan"] = skip_scan
+        # self._grasp_trial_summary["object_idx"] = self._obj_idx
+        # self._grasp_trial_summary["object_name"] = urdf_path.split('/')[-1].split('.')[0]
+        # self._grasp_trial_summary["object_urdf_path"] = urdf_path
+        # self._grasp_trial_summary["cloud_processing_time"] = cloud_processing_time
+        # self._grasp_trial_summary["query_time"] = query_time
+        # self._grasp_trial_summary["sample_time"] = sample_time
+        # self._grasp_trial_summary["sample_time"] = sample_time
+        # self._grasp_trial_summary["opt_time"] = opt_time
+        # self._grasp_trial_summary["grasp_generation_time"] = grasp_generation_time
         
-        cloud_filename = self._grasp_trial_summary["object_name"] + "_model"
+        # cloud_filename = self._grasp_trial_summary["object_name"] + "_model"
 
-        cloud_path = self.save_current_cloud(cloud_filename)
-        self._grasp_trial_summary["cloud_path"] = cloud_path
+        # cloud_path = self.save_current_cloud(cloud_filename)
+        # self._grasp_trial_summary["cloud_path"] = cloud_path
 
-        self._grasp_trial_summary["solution_list"] = self.grasp_generator.get_solutions()
+        # self._grasp_trial_summary["solution_list"] = self.grasp_generator.get_solutions()
         
-        # -1 means not tried/unknown
-        self._grasp_trial_summary["success_map"] = [-1]*self.grasp_generator.solution_count()
-        self._grasp_trial_summary["success_count"] = 0
-        self._grasp_trial_summary["trial_number"] = -1 #unset
+        # # -1 means not tried/unknown
+        # self._grasp_trial_summary["success_map"] = [-1]*self.grasp_generator.solution_count()
+        # self._grasp_trial_summary["success_count"] = 0
+        # self._grasp_trial_summary["trial_number"] = -1 #unset
 
-        self._grasp_trial_summary["object_position"] = self.object_position
-        self._grasp_trial_summary["object_orientation"] = self.object_orientation
+        # self._grasp_trial_summary["object_position"] = self.object_position
+        # self._grasp_trial_summary["object_orientation"] = self.object_orientation
 
         self._obj_idx = (self._obj_idx+1)%len(self._object_path_list)
         # self._obj_selection_publisher.publish(self._object_path_list[self._obj_idx])
-
+        
+        
 
         
         
@@ -412,7 +442,7 @@ class GraspAppService(SimpleGraspApp):
 
     def run_evaluation(self, vis):
         
-        n_objects = 52
+        n_objects = 60
         trials_per_object = 1
         n_best_to_try = 10
         summary_path = self.models_path + '/sim_exp_data/'
@@ -423,18 +453,18 @@ class GraspAppService(SimpleGraspApp):
                 self.generate_grasps(vis, skip_scan=False)
                 self._grasp_trial_summary["trial_number"] = trial
 
-                success = 0
-                for solution_exec in range(n_best_to_try):
-                    result = int(self.try_grasp2(solution_exec))
-                    self._grasp_trial_summary["success_map"][solution_exec] = result
+                # success = 0
+                # for solution_exec in range(n_best_to_try):
+                #     result = int(self.try_grasp2(solution_exec))
+                #     self._grasp_trial_summary["success_map"][solution_exec] = result
 
-                    if solution_exec == 0 and result == 1:
-                        success = 1
+                #     if solution_exec == 0 and result == 1:
+                #         success = 1
                 
-                self._grasp_trial_summary["success_count"] += success
+                # self._grasp_trial_summary["success_count"] += success
 
-                filename = "%.2f"%(time.time(),) + "_t%.4d_"%(trial) + self._grasp_trial_summary["object_name"] + ".pkl"
-                pickle.dump( self._grasp_trial_summary, open( summary_path + filename, "wb" ) )
+                # filename = "%.2f"%(time.time(),) + "_t%.4d_"%(trial) + self._grasp_trial_summary["object_name"] + ".pkl"
+                # pickle.dump( self._grasp_trial_summary, open( summary_path + filename, "wb" ) )
 
 
 
