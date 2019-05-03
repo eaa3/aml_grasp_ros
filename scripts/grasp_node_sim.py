@@ -128,9 +128,8 @@ class GraspAppService(SimpleGraspApp):
 
         self._solution_avail_cb = self.publish_solutions
 
-        self._object_path_list = ['/home/earruda/Projects/pybullet_cloud/models/object_models/cylinder.urdf',
-                                '/home/earruda/Projects/pybullet_cloud/models/object_models/cube_small.urdf',
-                                
+        self._object_path_list = ['%s/object_models/cylinder.urdf'%(self.models_path,),
+                                '%s/object_models/cube_small.urdf'%(self.models_path,),
                                  ]
 
         self.random_objects = crawl('%s/object_models/random_urdfs'%(self.models_path,),'urdf')
