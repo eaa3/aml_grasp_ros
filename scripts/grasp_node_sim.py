@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # license removed for brevity
 
-import threading, signal, time
+import threading, signal, time, os
 import rospy
 import numpy as np
 
@@ -164,6 +164,10 @@ class GraspAppService(SimpleGraspApp):
 
         
         self._grasp_trial_summary = {}
+        
+        print self._object_path_list[30]
+        # for i, p in enumerate(self._object_path_list):
+        #     print i, " -> ", p
 
     def show_summary(self,vis):
 
@@ -402,10 +406,7 @@ class GraspAppService(SimpleGraspApp):
         self._grasp_trial_summary["opt_time"] = opt_time
         self._grasp_trial_summary["grasp_generation_time"] = grasp_generation_time
         
-        cloud_filename = self._grasp_trial_summary["object_name"] + "_%.4d_model"%(trial_num,)
-
-        cloud_path = self.save_current_cloud(cloud_filename)
-        self._grasp_trial_summary["cloud_path"] = cloud_path
+        
 
         self._grasp_trial_summary["solution_list"] = self.grasp_generator.get_solutions()
         
@@ -425,12 +426,16 @@ class GraspAppService(SimpleGraspApp):
         
         return False
 
-    def save_current_cloud(self, filename):
+    def save_current_cloud(self, filename, folder = None):
 
-
-        filepath = self.models_path + '/sim_exp_data/' + filename + '.pcd'
-        o3d.write_point_cloud(filepath, self.point_cloud._cloud, True)
-        print "Cloud data saved to: ", filepath
+        if folder is None:
+            filepath = self.models_path + '/sim_exp_data/' + filename + '.pcd'
+            o3d.write_point_cloud(filepath, self.point_cloud._cloud, True)
+            print "Cloud data saved to: ", filepath
+        else:
+            filepath = self.models_path + '/sim_exp_data/' + folder + "/" + filename + '.pcd'
+            o3d.write_point_cloud(filepath, self.point_cloud._cloud, True)
+            print "Cloud data saved to: ", filepath
         # models_path = get_aml_package_path('aml_data')
         # filepath = models_path + '/exp_data/' + self.cloud_name + "_grasps.pkl"
         # save_data({'solution': solution, 'sidx': self.sidx, 'solution_list': self.grasp_generator.get_solutions()}, filepath)
@@ -445,7 +450,7 @@ class GraspAppService(SimpleGraspApp):
         n_best_to_try = 10
         summary_path = self.models_path + '/sim_exp_data/'
 
-        for i in range(n_objects):
+        for i in range(30, n_objects):
             
             for trial in range(trials_per_object):
                 self._obj_idx = i
@@ -463,12 +468,28 @@ class GraspAppService(SimpleGraspApp):
                         success = 1
                 
                 self._grasp_trial_summary["success_count"] += success
+                
+                trial_dir = grasp_config['contact_model']['type'] + "_t%.4d"%(trial,)
+                path = summary_path + trial_dir + "/"
+                self.makedir(path)
 
-                filename = "%.2f"%(time.time(),) + "_t%.4d_"%(trial) + self._grasp_trial_summary["object_name"] + ".pkl"
-                pickle.dump( self._grasp_trial_summary, open( summary_path + filename, "wb" ) )
+                now = time.time()
+                cloud_filename = "%.2f"%(now,) + self._grasp_trial_summary["object_name"] + "_%.4d_model"%(trial,)
+                cloud_path = self.save_current_cloud(cloud_filename, folder=trial_dir)
+                self._grasp_trial_summary["cloud_path"] = cloud_path
+
+                filename = "%.2f"%(now,) + "_t%.4d_"%(trial) + self._grasp_trial_summary["object_name"] + ".pkl"
+                
+                pickle.dump( self._grasp_trial_summary, open( path + filename, "wb" ) )
+                
+                
 
 
-
+    def makedir(self, dir):
+        try:
+            os.makedirs(dir)
+        except:
+            print "Directory already exists"
 
 
     def acquire_cloud_call(self, req):
