@@ -21,7 +21,7 @@ import argparse
 
 import tf
 
-SAVE_DATA = True
+SAVE_DATA = False
 
 ### TODO: maybe this should be moved to somewhere else
 from visualization_msgs.msg import Marker
@@ -76,14 +76,14 @@ class GraspAppService(GraspApp):
         if args.sim:
             self.pcl_service = PCLService(point_cloud_topic="/left_camera/sim/depth_registered/points")
         else:
-            self.pcl_service = PCLService(point_cloud_topic="/sim_cloud")#"/left_camera/depth_registered/points")
+            self.pcl_service = PCLService(point_cloud_topic="/external_camera/depth_registered/points")#"/sim_cloud")#"/left_camera/depth_registered/points")
 
         rospy.init_node('GraspService', anonymous=True)
         self.grasp_service = None
 
         self.cloud_frame = Transform3()
 
-        # self.grasp_generator.add_contraint_callback(hard_kinematic_constraint, ctype='hard')
+        self.grasp_generator.add_contraint_callback(hard_kinematic_constraint, ctype='hard')
 
         # self.grasp_generator.add_contraint_callback(ft.partial(hard_axis_alignment_constraint,directionA=self.cloud_frame.to_matrix()[:3,2], directionB=self.cloud_frame.to_matrix()[:3,0]), ctype='hard')
 
@@ -95,7 +95,7 @@ class GraspAppService(GraspApp):
 
         self.cloud_frame = self.pcl_service.compute_cloud_frame(self.point_cloud.points())
         self.mesh_frame2.transformation = self.cloud_frame.to_matrix()
-
+        self.object.set_pos_ori(np.array([0.0,-1.8,0]),[0,0,0,1])
 
         self.cloud_name = None
 
@@ -322,7 +322,7 @@ class GraspAppService(GraspApp):
 
     def get_grasp_solution(self, req):
         resp = GraspSolutionResponse()
-
+        solution = None
         if self.grasp_generator.has_solutions():
             solution = self.grasp_generator.get_solution(self.sidx)
 
@@ -411,7 +411,7 @@ class GraspAppService(GraspApp):
 
 
         if point_cloud:
-            point_cloud.downsample(0.005)
+            point_cloud.downsample(0.008) #0.005
             diff = np.abs(point_cloud.n_points() - self.point_cloud.n_points())
             has_changed = diff > 200
             if has_changed:
@@ -465,12 +465,13 @@ class GraspAppService(GraspApp):
 
         self._solution_publisher.publish(solution_set_msg)
 
-        pos = solution_set_msg.solutions[0].base_pose[0:3]
-        quat = solution_set_msg.solutions[0].base_pose[3:7]
-        self.br.sendTransform(pos, quat,
-                              rospy.Time.now(),
-                              "/target/j2n6s300_link_6",
-                              "world")
+        if len(solution_set_msg.solutions) > 0:
+            pos = solution_set_msg.solutions[0].base_pose[0:3]
+            quat = solution_set_msg.solutions[0].base_pose[3:7]
+            self.br.sendTransform(pos, quat,
+                                rospy.Time.now(),
+                                "/target/j2n6s300_link_6",
+                                "world")
 
 
     def start_ros_spin(self):
