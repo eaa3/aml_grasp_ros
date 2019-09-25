@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_conversions
   pcl_ros
   message_generation
+  robot_markers
 )
 
 # PCL ########################## PCL (apparently) links the required BOOST libraries and Eigen3 also
@@ -181,6 +182,21 @@ target_link_libraries(pcl_service
 )
 add_dependencies(pcl_service temporal_grasp_generate_messages_cpp ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+
+add_executable(grasp_display src/temporal_grasp/grasp_display.cpp )
+add_dependencies(grasp_display ${robot_markers_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(grasp_display
+  robot_markers_builder
+  ${catkin_LIBRARIES}
+)
+
+# add_executable(robot_markers_demo src/demo_main.cpp)
+# set_target_properties(robot_markers_demo PROPERTIES OUTPUT_NAME demo PREFIX "")
+# add_dependencies(robot_markers_demo ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# target_link_libraries(robot_markers_demo
+# 	robot_markers_builder
+#   ${catkin_LIBRARIES}
+# )
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
