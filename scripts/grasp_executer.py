@@ -239,14 +239,15 @@ class GraspExecuter(object):
         self._pre_grasp_plan = None
         self._pre_grasp_plan2 = None
         self._grasp_arm_joint_path = None
+        self._grasp_plan = None
         self._grasp_hand_joint_path = None
 
         self._post_grasp_plan = None
 
         self._grasp_service_client = GraspServiceClient()
 
-
-        self._boris.set_control_mode(mode="joint_impedance", limb_name="left_arm")
+        #position
+        self._boris.set_control_mode(mode="position", limb_name="left_arm") # joint_impedance
 
         self._arm_traj_generator = MinJerkTrajHelper()
         self._hand_traj_generator = MinJerkTrajHelper()
@@ -413,12 +414,16 @@ class GraspExecuter(object):
 
         self._boris.execute_moveit_plan("left_hand_arm", self._pre_grasp_plan)
 
+    def goto_grasp(self):
+
+        self._boris.execute_moveit_plan("left_hand_arm", self._grasp_plan)
+
     def plan_grasp(self):
 
         self.remove_collision_object("guard")
         self.remove_collision_object("table")
         # self._pre_grasp_plan2, fraction2 = self._boris.compute_cartesian_path_moveit("left_hand_arm",[self._grasp_waypoints[:1]])
-        self._grasp_arm_joint_path, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3], 
+        self._grasp_plan, fraction = self._boris.compute_cartesian_path_moveit("left_hand_arm",self._grasp_waypoints[:3], 
                                                                                          eef_step = 0.01, jump_threshold = 50.0)
         # Set back to current
         # self._moveit_wrapper.set_start_state("left_hand_arm", self._boris.joint_names("left_arm"), current_angles)
@@ -427,8 +432,8 @@ class GraspExecuter(object):
         ## try to plan final goal in case cartesian path
         if not is_executable:
             rospy.logwarn("Failed to plan cartesian path passing through all waypoints. Trying last one only.")
-            self._grasp_arm_joint_path = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[2])  
-            is_executable = len(self._grasp_arm_joint_path.joint_trajectory.points) > 0
+            self._grasp_plan = self._boris.get_moveit_cartesian_plan("left_hand_arm", self._grasp_waypoints[2])  
+            is_executable = len(self._grasp_plan.joint_trajectory.points) > 0
             
 
         if not is_executable:
@@ -437,7 +442,7 @@ class GraspExecuter(object):
         
         else:
 
-            self._grasp_arm_joint_path = self._grasp_arm_joint_path.joint_trajectory
+            self._grasp_arm_joint_path = self._grasp_plan.joint_trajectory
 
             self._arm_traj_generator.set_waypoints(self._grasp_arm_joint_path)
 
@@ -532,6 +537,9 @@ class GraspExecuter(object):
                 play_forward = False
                 play_backward = False
                 rospy.loginfo("Halt open loop playing")
+            elif key == 'g':
+                self.goto_pregrasp()
+
 
             if play_forward:
                 step = self.update_step(step, time_steps,1)
@@ -559,7 +567,7 @@ class GraspExecuter(object):
         step = 0
         step_arm = 0
 
-        def step_grasp(step, arm_step):
+        def step_grasp(step, arm_step, hand_only = False):
 
             joint_goal = self._arm_traj_generator.get_point_t(time_steps_arm[arm_step])
             hand_goal = self._hand_traj_generator.get_point_t(time_steps[step])
@@ -567,7 +575,8 @@ class GraspExecuter(object):
             print "HandGoal: ", hand_goal.time_from_start.to_sec(), " step=", step, " pos: ",hand_goal.positions
             print "CurrArmState:", self._boris.angles('left_arm')
             print "ArmGoal: ", hand_goal.time_from_start.to_sec(), " step=", step, " pos: ",joint_goal.positions
-            cmd = self._boris.cmd_joint_angles(angles=joint_goal.positions,execute=True)
+            if not hand_only:
+                cmd = self._boris.cmd_joint_angles(angles=joint_goal.positions,execute=True)
             self._boris.goto_joint_angles('left_hand',hand_goal.positions, hand_goal.time_from_start.to_sec())
         
         loop_rate = rospy.Rate(30.0)
@@ -623,12 +632,18 @@ class GraspExecuter(object):
                 self._boris.goto_joint_angles('left_hand',[1.0], 0.01)
             elif key == 'o':
                 self._boris.goto_joint_angles('left_hand',[0.0], 0.01)
+            elif key == 'g':
+                self.goto_grasp()
+                
 
             if play_forward:
                 step = self.update_step(step, time_steps,1)
                 step_arm = self.update_step(step_arm, time_steps_arm,1)  
                 step_grasp(step, step_arm)
                 rospy.loginfo("Step %d"%(step,))
+
+                if step >= 298:
+                    self._boris.goto_joint_angles('left_hand',[1.0], 0.1)
             elif play_backward:
                 step = self.update_step(step, time_steps,-1)
                 step_arm = self.update_step(step_arm, time_steps_arm,-1)  
