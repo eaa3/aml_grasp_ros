@@ -265,15 +265,15 @@ def main():
     
 
 
-    rate = rospy.Rate(30)
-    while not rospy.is_shutdown():
-        br.sendTransform(ee_transform.p,
-                        ee_transform.q,
-                        rospy.Time.now(),
-                        "grasp_goal",
-                        "world")
+    # rate = rospy.Rate(30)
+    # while not rospy.is_shutdown():
+    #     br.sendTransform(ee_transform.p,
+    #                     ee_transform.q,
+    #                     rospy.Time.now(),
+    #                     "grasp_goal",
+    #                     "world")
 
-        rate.sleep()
+    #     rate.sleep()
 
 
 

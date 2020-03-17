@@ -244,6 +244,7 @@ class GraspExecuter(object):
 
         self._post_grasp_plan = None
 
+
         self._grasp_service_client = GraspServiceClient()
 
         #position
@@ -341,7 +342,7 @@ class GraspExecuter(object):
         dir_vec *= 0.0#0.05
         target = geometry_msgs.msg.Pose()
 
-        for n_tries in range(50):
+        for n_tries in range(5):
             rand_offset_x = np.random.randn()*np.sqrt(0.0001)
             rand_offset_y = np.random.randn()*np.sqrt(0.0001)
             rand_offset_z = np.maximum(0.15 + np.random.randn()*np.sqrt(0.0001),0.10)
@@ -769,6 +770,24 @@ class GraspExecuter(object):
                 rospy.logwarn("No grasp solution. Press 0.")
                 
 
+            
+
+            loop_rate.sleep()
+
+    def run2(self):
+
+        rospy.loginfo("Running!!")
+        
+        loop_rate = rospy.Rate(5)
+        has_solution = False
+        has_plan = False
+        has_post_grasp_plan = False
+        while not rospy.is_shutdown():
+
+            has_solution = self.get_solution()
+
+            if has_solution:
+                self.goto_pregrasp()
             
 
             loop_rate.sleep()

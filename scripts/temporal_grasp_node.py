@@ -9,6 +9,7 @@ from aml_demos import GraspApp
 from aml_math import *
 
 from pcl_service_client import PCLService
+from geometry_msgs.msg import PoseStamped
 from temporal_grasp_ros.srv import *
 from temporal_grasp_ros.msg import *
 from aml_grasp.grasp_config_test import grasp_config
@@ -109,6 +110,7 @@ class GraspAppService(GraspApp):
 
        
         self._solution_publisher = rospy.Publisher("/grasp/solutions", GraspSolutionSet, queue_size=1)
+        self._grasp_pose_publisher = rospy.Publisher("/grasp_pose", PoseStamped, queue_size=1)
         self.br = tf.TransformBroadcaster()
 
 
@@ -226,7 +228,7 @@ class GraspAppService(GraspApp):
         resp = GraspServiceCallResponse()
 
         if self._cloud_update is None:
-            self._cloud_update = rospy.Timer(rospy.Duration(1), self.periodic_cloud_update)
+            self._cloud_update = rospy.Timer(rospy.Duration(0.5), self.periodic_cloud_update)
             print "Cloud update started"
         else:
             self._cloud_update.shutdown()
@@ -401,7 +403,7 @@ class GraspAppService(GraspApp):
     def periodic_cloud_update(self, event):
 
         crop_min_pt=[0.2, 0.3, -0.3] # table surface: z=-0.05
-        crop_max_pt=[0.95, 0.9, 0.25]
+        crop_max_pt=[0.95, 0.9, -0.05] #25
         # x=0.45, y=0.6, z=0.725
         point_cloud, cloud_frame = self.pcl_service.get_processed_cloud(crop_min_pt=crop_min_pt, crop_max_pt=crop_max_pt)#(crop_min_pt=[-1,-1,-1], crop_max_pt=[1,1,1])#PointCloud(o3d.read_point_cloud("../aml_data/jug.pcd"))
 
@@ -411,9 +413,9 @@ class GraspAppService(GraspApp):
 
 
         if point_cloud:
-            point_cloud.downsample(0.008) #0.005
+            point_cloud.downsample(0.01) #0.005
             diff = np.abs(point_cloud.n_points() - self.point_cloud.n_points())
-            has_changed = diff > 200
+            has_changed = diff > 10
             if has_changed:
                 print "Cloud has changed! Diff is: ", diff
                 self.cloud_frame = cloud_frame
@@ -470,8 +472,25 @@ class GraspAppService(GraspApp):
             quat = solution_set_msg.solutions[0].base_pose[3:7]
             self.br.sendTransform(pos, quat,
                                 rospy.Time.now(),
-                                "/target/j2n6s300_link_6",
+                                "/grasp_pose",
                                 "world")
+
+
+            pose = PoseStamped()
+            pose.header.stamp = rospy.Time.now()
+            pose.header.frame_id = "world"
+            pose.pose.position.x = pos[0]
+            pose.pose.position.y = pos[1]
+            pose.pose.position.z = pos[2]
+
+            pose.pose.orientation.x = quat[0]
+            pose.pose.orientation.y = quat[1]
+            pose.pose.orientation.z = quat[2]
+            pose.pose.orientation.w = quat[3]
+
+            self._grasp_pose_publisher.publish(pose)
+
+        rospy.loginfo("Sending!!")
 
 
     def start_ros_spin(self):

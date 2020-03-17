@@ -27,7 +27,7 @@ import open3d as o3d
 from aml_core import PointCloud
 from aml_robot import SceneObject
 # from pympler.tracker import SummaryTracker
-
+import traceback
 
 SAVE_DATA = True
 
@@ -135,10 +135,10 @@ class GraspAppService(SimpleGraspApp):
         self.random_objects = crawl('%s/object_models/random_urdfs'%(self.models_path,),'urdf')
         self._object_path_list = self._object_path_list + [ path for _, path in self.random_objects.items()]
         self._obj_idx = 0#7
-        self.random_objects["cylinder.urdf"] = self._object_path_list[0]
-        self.random_objects["cube_small.urdf"] = self._object_path_list[1]
+        # self.random_objects["cylinder.urdf"] = self._object_path_list[0]
+        # self.random_objects["cube_small.urdf"] = self._object_path_list[1]
 
-        summary_path = self.models_path + '/sim_exp_data/'
+        summary_path = self.models_path + '/grasp_results/60_obj_trials_condition04/irlab-u16/gmm_t0000'
         self.grasp_summaries = crawl(summary_path,'pkl')
         self.gsidx = 0
 
@@ -156,18 +156,23 @@ class GraspAppService(SimpleGraspApp):
         self.object.load_object(urdf_path)
         self.object.set_pos_ori(self.object_position,self.object_orientation)
 
-        #for path in self._object_path_list[self._obj_idx:self._obj_idx+52]:
-            #obj = SceneObject(filename=path.split("/")[-1], phys_id = self.robot._phys_id, phys_opt='none', fixed_base=False, scale=1.0)
-            #obj.set_pos_ori(self.object_position,self.object_orientation)
+        i = 0
+        for path in self._object_path_list[1:self._obj_idx+61]:
+            obj = SceneObject(filename=path.split("/")[-1], phys_id = self.robot._phys_id, phys_opt='none', fixed_base=False, scale=1.0)
+            
+            pos = [self.object_position[0]-0.1 + (i/10)*0.1,self.object_position[1]-1.0 + (i%10)*0.1, self.object_position[2]]
+            obj.set_pos_ori(pos,self.object_orientation)
+            i+=1
 
         self.br = tf.TransformBroadcaster()
-
+        # self.grasp_generator.setup_execution_simulation()
         
         self._grasp_trial_summary = {}
         
         print self._object_path_list[30]
-        # for i, p in enumerate(self._object_path_list):
-        #     print i, " -> ", p
+        for i, p in enumerate(self._object_path_list):
+            if i <= 60:
+                print i, " -> ", p
 
     def show_summary(self,vis):
 
@@ -193,7 +198,7 @@ class GraspAppService(SimpleGraspApp):
                             position,
                             orientation
                             )
-        self.load_cloud(self._grasp_trial_summary["cloud_path"])
+        # self.load_cloud(self._grasp_trial_summary["cloud_path"])
 
         self.grasp_generator.setup_execution_simulation()
 
@@ -227,7 +232,7 @@ class GraspAppService(SimpleGraspApp):
                             position,
                             orientation
                             )
-        self.load_cloud(self._grasp_trial_summary["cloud_path"])
+        # self.load_cloud(self._grasp_trial_summary["cloud_path"])
 
         self.grasp_generator.setup_execution_simulation()
 
@@ -450,11 +455,24 @@ class GraspAppService(SimpleGraspApp):
         n_best_to_try = 10
         summary_path = self.models_path + '/sim_exp_data/'
 
-        for i in range(30, n_objects):
+        for i in range(n_objects):
             
             for trial in range(trials_per_object):
-                self._obj_idx = i
-                self.generate_grasps(vis, trial_num=trial, skip_scan=False)
+                generation_success = False
+
+                while not generation_success:
+                    
+                    try:
+                        self._obj_idx = i
+                        self.generate_grasps(vis, trial_num=trial, skip_scan=False)
+                        generation_success = True
+                    except Exception as e:
+                        f = open(summary_path + "log.txt","a")
+                        f.write("Failed on object idx: %d trial: %d\n"%(i,trial))
+                        f.close()
+                        traceback.print_exc()
+                        print e
+                
                 
 
                 self._grasp_trial_summary["trial_number"] = trial
